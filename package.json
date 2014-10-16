@@ -1,0 +1,10 @@
+{
+    "name": "esmint",
+    "version": "0.1.0",
+    "author": "Max Schaefer <xiemaisi@gmail.com>",
+    "description": "A meta-circular interpreter for ECMAScript",
+    "dependencies" : {
+	  "acorn": "*"
+    },
+    "license": "Eclipse"
+}
