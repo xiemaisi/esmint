@@ -5,7 +5,7 @@
 var util = require('./util'),
   eval = util.eval,
   acorn = require('acorn'),
-  walk = require('acorn/util/walk'),
+  walk = require('acorn/dist/walk'),
   ExecutionContext = require('./ExecutionContext'),
   Environment = require('./Environment'),
   completions = require('./completions'),
@@ -14,6 +14,27 @@ var util = require('./util'),
   VarRef = references.VarRef, PropRef = references.PropRef,
   operators = require('./operators'),
   unop = operators.unop, binop = operators.binop;
+
+function parse(src, isStrict) {
+  var p = new acorn.Parser({}, src);
+  if (isStrict)
+    p.strict = true;
+  return p.parse();
+}
+
+function useStrict(stmts) {
+  for (var i=0; i<stmts.length; ++i) {
+    var stmt = stmts[i];
+    if (stmt.type !== 'ExpressionStatement')
+      return false;
+    if (stmt.expression.type !== 'Literal')
+      return false;
+    if (stmt.expression.raw === '"use strict"' ||
+        stmt.expression.raw === "'use strict'")
+      return true;
+  }
+  return false;
+}
 
 /** The global environment. */
 var globalEnv = new Environment(null, util.globalObj);
@@ -160,9 +181,7 @@ Evaluator.prototype.evref = function(ctxt, nd) {
 Evaluator.prototype.ev = function(ctxt, nd) {
   if (typeof nd === 'string') {
     try {
-      nd = acorn.parse(nd, {
-        forbidReserved: true
-      });
+      nd = parse(nd, ctxt && ctxt.strict);
     } catch (e) {
       if (e instanceof SyntaxError) {
         // Acorn treats this as a syntax error, but it should be a ReferenceError
@@ -180,7 +199,7 @@ Evaluator.prototype.ev = function(ctxt, nd) {
 
 Evaluator.prototype.Program = function(ctxt, nd) {
   this.annotateWithLabels(nd);
-  ctxt = new ExecutionContext(globalEnv, util.globalObj);
+  ctxt = new ExecutionContext(globalEnv, util.globalObj, useStrict(nd.body));
   this.instantiateDeclBindings(ctxt, nd);
   return this.evseq(ctxt, nd.body);
 };
@@ -460,6 +479,7 @@ Evaluator.prototype.FunctionDeclaration =
 Evaluator.prototype.FunctionExpression = function(ctxt, nd) {
     var fn_name = nd.id ? nd.id.name : "",
       self = this,
+      strict = ctxt.strict || useStrict(nd.body.body),
       fn_param_names = util.map(nd.params, function(param) {
         return param.name;
       }),
@@ -472,7 +492,7 @@ Evaluator.prototype.FunctionExpression = function(ctxt, nd) {
       while (true) {
         var isBacktrack = false;
         var new_env = new Environment(ctxt.lexicalEnvironment),
-            new_ctxt = new ExecutionContext(new_env, thiz);
+            new_ctxt = new ExecutionContext(new_env, thiz, strict);
         if (nd.type === 'FunctionExpression' && fn_name) {
           var h = self.hooks.declare(nd, fn_name, fn, false, -1, false);
           if (h) {
@@ -634,11 +654,10 @@ Evaluator.prototype.NewExpression = function(ctxt, nd) {
         if (typeof args[0] !== 'string')
           return new Completion('normal', new Result(args[0]), null);
         try {
-          var prog = acorn.parse(args[0], {
-            forbidReserved: true
-          });
+          var isDirect = nd.callee.type === 'Identifier' && nd.callee.name === 'eval';
+          var prog = parse(args[0], isDirect && ctxt.strict);
 
-          if (nd.callee.type === 'Identifier' && nd.callee.name === 'eval') {
+          if (isDirect) {
             completion = this.evseq(ctxt, prog.body);
           } else {
             completion = this.ev(null, prog);
