@@ -1,13 +1,18 @@
-var acorn = require('acorn'),
-    fs = require('fs'),
+var fs = require('fs'),
     Evaluator = require('./ev').Evaluator,
-    e = new Evaluator(),
-    arg, src, completion;
+    srcs = [], mixins = {};
 
 for (var i=2, n=process.argv.length; i<n; ++i) {
-    arg = process.argv[i];
-    src = fs.existsSync(arg) ? fs.readFileSync(arg, 'utf-8') : arg;
-    completion = e.ev(null, src);
+    var arg = process.argv[i];
+    if (arg === '--mixin')
+      util.extend(mixins, require(process.argv[++i]));
+    else
+      srcs.push(fs.existsSync(arg) ? fs.readFileSync(arg, 'utf-8') : arg);
+}
+
+var e = new Evaluator(mixins);
+for (var i=0; i<srcs.length; ++i) {
+    completion = e.ev(null, srcs[i]);
     if (completion.type !== 'normal')
         break;
 }
