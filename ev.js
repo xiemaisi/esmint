@@ -789,7 +789,7 @@ Evaluator.prototype.LogicalExpression = function(ctxt, nd) {
     return this.ev(ctxt, nd.right);
   } else {
     completion = this.ev(ctxt, nd.left);
-    if (completion.type === 'normal')
+    if (completion.type !== 'normal')
       return completion;
     this.applyHook(completion, 'conditional', nd.left);
     if (!!completion.result.value)
