@@ -72,7 +72,7 @@ Evaluator.prototype.annotateWithLabels = function(ast) {
 }
 
 /** Declaration binding instantiation. */
-Evaluator.prototype.instantiateDeclBindings = function(ctxt, nd) {
+Evaluator.prototype.instantiateDeclBindings = function(ctxt, nd, configurable) {
   var self = this;
 
   function doit(nd) {
@@ -83,11 +83,11 @@ Evaluator.prototype.instantiateDeclBindings = function(ctxt, nd) {
         if (h) {
           fn = h.result;
         }
-        ctxt.variableEnvironment.addBinding(nd.id.name, fn);
+        ctxt.variableEnvironment.addBinding(nd.id.name, fn, configurable);
         break;
       case 'VariableDeclarator':
         self.hooks.declare(nd, nd.id.name, void(0), false, -1, false);
-        ctxt.variableEnvironment.addBinding(nd.id.name);
+        ctxt.variableEnvironment.addBinding(nd.id.name, void(0), configurable);
         break;
       case 'VariableDeclaration':
         util.forEach(nd.declarations, doit);
@@ -199,8 +199,8 @@ Evaluator.prototype.ev = function(ctxt, nd) {
 
 Evaluator.prototype.Program = function(ctxt, nd) {
   this.annotateWithLabels(nd);
-  ctxt = new ExecutionContext(globalEnv, util.globalObj, useStrict(nd.body));
-  this.instantiateDeclBindings(ctxt, nd);
+  ctxt = new ExecutionContext(globalEnv, util.globalObj, useStrict(nd.body), ctxt && ctxt.isEvalCode);
+  this.instantiateDeclBindings(ctxt, nd, ctxt.isEvalCode);
   return this.evseq(ctxt, nd.body);
 };
 
@@ -480,6 +480,7 @@ Evaluator.prototype.FunctionExpression = function(ctxt, nd) {
     var fn_name = nd.id ? nd.id.name : "",
       self = this,
       strict = ctxt.strict || useStrict(nd.body.body),
+      isEvalCode = ctxt.isEvalCode,
       fn_param_names = util.map(nd.params, function(param) {
         return param.name;
       }),
@@ -492,7 +493,7 @@ Evaluator.prototype.FunctionExpression = function(ctxt, nd) {
       while (true) {
         var isBacktrack = false;
         var new_env = new Environment(ctxt.lexicalEnvironment),
-            new_ctxt = new ExecutionContext(new_env, thiz, strict);
+            new_ctxt = new ExecutionContext(new_env, thiz, strict, isEvalCode);
         if (nd.type === 'FunctionExpression' && fn_name) {
           var h = self.hooks.declare(nd, fn_name, fn, false, -1, false);
           if (h) {
@@ -508,7 +509,7 @@ Evaluator.prototype.FunctionExpression = function(ctxt, nd) {
           }
           new_env.addBinding(param, arg);
         });
-        self.instantiateDeclBindings(new_ctxt, nd.body);
+        self.instantiateDeclBindings(new_ctxt, nd.body, ctxt.isEvalCode);
         if (!new_env.hasBinding('arguments')) {
           var h = self.hooks.declare(nd, 'arguments', args, true, -1, false);
           if (h) {
@@ -658,9 +659,12 @@ Evaluator.prototype.NewExpression = function(ctxt, nd) {
           var prog = parse(args[0], isDirect && ctxt.strict);
 
           if (isDirect) {
+            var wasEvalCode = ctxt.isEvalCode;
+            ctxt.isEvalCode = true;
             completion = this.evseq(ctxt, prog.body);
+            ctxt.isEvalCode = wasEvalCode;
           } else {
-            completion = this.ev(null, prog);
+            completion = this.ev({ isEvalCode: true }, prog);
           }
         } catch (e) {
           completion = new Completion('throw', new Result(e), null);
