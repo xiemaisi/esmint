@@ -167,11 +167,11 @@ Evaluator.prototype.evref = function(ctxt, nd) {
     } else {
       prop = util.String(nd.property.name);
     }
-    return new Completion('normal', new Result(new PropRef(this, base, prop)), null);
+    return new Completion('normal', new Result(new PropRef(this, base, prop, ctxt.strict)), null);
   } else if (nd.type === 'VariableDeclaration') {
     return this.evref(ctxt, nd.declarations[0].id);
   } else if (nd.type === 'Identifier') {
-    return new Completion('normal', new Result(new VarRef(this, ctxt.lexicalEnvironment, nd.name)), null);
+    return new Completion('normal', new Result(new VarRef(this, ctxt.lexicalEnvironment, nd.name, ctxt.strict)), null);
   } else {
     throw new util.Error("Bad reference: " + nd.type);
   }

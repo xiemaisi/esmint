@@ -1,12 +1,14 @@
 var completions = require('./completions'),
     Completion = completions.Completion,
-    Result = completions.Result;
+    Result = completions.Result,
+    util = require('./util');
 
 /** A property reference. */
-function PropRef(evaluator, base, prop) {
+function PropRef(evaluator, base, prop, strict) {
   this.hooks = evaluator.hooks;
   this.base = base;
   this.prop = prop;
+  this.strict = strict;
 }
 
 PropRef.prototype.get = function() {
@@ -69,10 +71,11 @@ PropRef.prototype.isUnresolvable = function() {
 };
 
 /** A variable reference. */
-function VarRef(evaluator, env, name) {
+function VarRef(evaluator, env, name, strict) {
   this.hooks = evaluator.hooks;
   this.env = env;
   this.name = name;
+  this.strict = strict;
 }
 
 VarRef.prototype.get = function() {
@@ -85,6 +88,9 @@ VarRef.prototype.get = function() {
 };
 
 VarRef.prototype.set = function(v) {
+  if (this.strict && this.isUnresolvable())
+    return new Completion('throw', new Result(new util.ReferenceError()), null);
+
   var oldVal = this.env.get(this.name);
   var h = this.hooks.write(null, this.name, v, oldVal);
   if (h) {
