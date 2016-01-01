@@ -423,7 +423,10 @@ Evaluator.prototype.BlockStatement = function(ctxt, nd) {
 };
 
 Evaluator.prototype.VariableDeclaration = function(ctxt, nd) {
-  return this.evseq(ctxt, nd.declarations);
+  var completion = this.evseq(ctxt, nd.declarations);
+  if (completion.type !== 'normal')
+    return completion;
+  return new Completion('normal', new Result(), null);
 };
 
 Evaluator.prototype.LabeledStatement = function(ctxt, nd) {
@@ -555,7 +558,7 @@ Evaluator.prototype.MemberExpression = function(ctxt, nd) {
     if (completion.type !== 'normal')
       return completion;
     return completion.result.value.get();
-  };
+};
 
 Evaluator.prototype.ArrayExpression = function(ctxt, nd) {
   var elts = [],
@@ -670,17 +673,7 @@ Evaluator.prototype.NewExpression = function(ctxt, nd) {
           completion = new Completion('throw', new Result(e), null);
         }
       } else {
-        try {
-          var v;
-          if (nd.type === 'CallExpression') {
-            v = util.apply(callee, base, args);
-          } else {
-            v = util.construct(callee, args);
-          }
-          completion = new Completion('normal', new Result(v), null);
-        } catch (e) {
-          return new Completion('throw', new Result(e), null);
-        }
+        completion = this.invoke(callee, base, args, isConstructor);
       }
       if (completion.type === 'return') {
         r = this.hooks.invokeFun(nd, callee, base, args, completion.result.value, isConstructor, isMethod);
@@ -689,7 +682,35 @@ Evaluator.prototype.NewExpression = function(ctxt, nd) {
       }
     }
     return completion;
-  };
+};
+
+Evaluator.prototype.invoke = function(callee, base, args, isConstructor) {
+  try {
+    var v;
+    if (isConstructor) {
+      v = util.construct(callee, args);
+    } else {
+      v = util.apply(callee, base, args);
+    }
+    return new Completion('normal', new Result(v), null);
+  } catch (e) {
+    return new Completion('throw', new Result(e), null);
+  }
+};
+
+var lconv = {}, rconv = {};
+util.forEach(['*', '/', '%', '-'], function(op) {
+  lconv[op] = rconv[op] = 'ToNumber';
+});
+lconv['+'] = rconv['+'] = 'ToPrimitive';
+util.forEach(['<<', '>>'], function(op) {
+  lconv[op] = 'ToInt32';
+  rconv[op] = 'ToUint32';
+});
+lconv['>>>'] = rconv['>>>'] = 'ToUint32';
+util.forEach(['&', '|', '^'], function(op) {
+  lconv[op] = rconv[op] = 'ToInt32';
+});
 
 Evaluator.prototype.BinaryExpression = function(ctxt, nd) {
   var completion, op = nd.operator, l, r;
@@ -710,6 +731,25 @@ Evaluator.prototype.BinaryExpression = function(ctxt, nd) {
     l = h.left;
     r = h.right;
   }
+
+  // apply conversions
+  if (lconv[op]) {
+    completion = this[lconv[op]](l);
+    if (completion.type !== 'normal')
+      return completion;
+    l = completion.result.value;
+  }
+  if (rconv[op]) {
+    completion = this[rconv[op]](r);
+    if (completion.type !== 'normal')
+      return completion;
+    r = completion.result.value;
+  }
+
+  // special checks for `in` and `instanceof`
+  if (op === 'in' || op === 'instanceof')
+    if (this.typeOf(r) !== 'object')
+      return new Completion('throw', new Result(new util.TypeError()), null);
 
   var res = binop[op](l, r);
 
@@ -757,18 +797,26 @@ Evaluator.prototype.UnaryExpression = function(ctxt, nd) {
         return new Completion('normal', new Result(typeof completion.result.value), null);
       }
     default:
+      // evaluate operand
       completion = this.ev(ctxt, nd.argument);
       if (completion.type !== 'normal')
         return completion;
+      var op = nd.operator, arg = completion.result.value;
 
-      var op = nd.operator,
-          arg = completion.result.value;
       var h = this.hooks.unaryPre(nd, op, arg);
       if (h) {
         op = h.op;
         arg = h.left;
       }
 
+      // apply conversion
+      var conv = (op === '~' && 'ToInt32' || op === '!' && 'ToBoolean' || 'ToNumber');
+      completion = this[conv](arg);
+      if (completion.type !== 'normal')
+        return completion;
+      arg = completion.result.value;
+
+      // evaluate operator
       var res = unop[op](arg);
 
       h = this.hooks.unary(nd, op, arg, res);
@@ -779,6 +827,89 @@ Evaluator.prototype.UnaryExpression = function(ctxt, nd) {
       return new Completion('normal', new Result(res), null);
   }
 };
+
+Evaluator.prototype.ToInt32 = function(x) {
+  var completion = this.ToNumber(x);
+  if (completion.type !== 'normal')
+    return completion;
+  return new Completion('normal', new Result(completion.result.value|0), null);
+};
+
+Evaluator.prototype.ToUint32 = function(x) {
+  var completion = this.ToNumber(x);
+  if (completion.type !== 'normal')
+    return completion;
+  return new Completion('normal', new Result(completion.result.value>>>0), null);
+};
+
+Evaluator.prototype.ToNumber = function(x) {
+  if (this.typeOf(x) !== 'object')
+    return new Completion('normal', new Result(+x), null);
+  var completion = this.ToPrimitive(x, 'number');
+  if (completion.type !== 'normal')
+    return completion;
+  return new Completion('normal', new Result(+completion.result.value), null);
+};
+
+Evaluator.prototype.ToBoolean = function(x) {
+  return new Completion('normal', new Result(!!x), null);
+};
+
+Evaluator.prototype.ToPrimitive = function(x, preferredType) {
+  if (this.typeOf(x) !== 'object')
+    return new Completion('normal', new Result(x), null);
+  return this.DefaultValue(x, preferredType);
+};
+
+Evaluator.prototype.DefaultValue = function(o, preferredType) {
+  if (!preferredType)
+    preferredType = o instanceof util.Date ? 'string' : 'number';
+
+  var completion;
+  if (preferredType === 'string') {
+    var toString = new PropRef(this, o, 'toString').get().result.value;
+    if (typeof toString === 'function') {
+      completion = this.invoke(toString, o, [], false);
+      if (completion.type !== 'normal' ||
+          this.typeOf(completion.result.value) !== 'object')
+        return completion;
+    }
+
+    var valueOf = new PropRef(this, o, 'valueOf').get().result.value;
+    if (typeof valueOf === 'function') {
+      completion = this.invoke(valueOf, o, [], false);
+      if (completion.type !== 'normal' ||
+          this.typeOf(completion.result.value) !== 'object')
+        return completion;
+    }
+  } else {
+    var valueOf = new PropRef(this, o, 'valueOf').get().result.value;
+    if (typeof valueOf === 'function') {
+      completion = this.invoke(valueOf, o, [], false);
+      if (completion.type !== 'normal' ||
+          this.typeOf(completion.result.value) !== 'object')
+        return completion;
+    }
+
+    var toString = new PropRef(this, o, 'toString').get().result.value;
+    if (typeof toString === 'function') {
+      completion = this.invoke(toString, o, [], false);
+      if (completion.type !== 'normal' ||
+          this.typeOf(completion.result.value) !== 'object')
+        return completion;
+    }
+  }
+
+  return new Completion('throw', new Result(new util.TypeError()), null);
+};
+
+Evaluator.prototype.typeOf = function(x) {
+  if (x === null)
+    return 'null';
+  if (typeof x === 'function')
+    return 'object';
+  return typeof x;
+}
 
 Evaluator.prototype.LogicalExpression = function(ctxt, nd) {
   var completion;
