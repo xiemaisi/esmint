@@ -70,14 +70,6 @@ exports.substring = function(str, start, end) {
   return exports.apply(exports.String_prototype_substring, str, [start, end]);
 };
 
-exports.extend = function extend(dst, src) {
-  if (typeof dst !== 'object' || typeof src !== 'object')
-    return src;
-
-  for (var p in src)
-    dst[p] = extend(dst[p], src[p]);
-};
-
 exports.apply = function(fn, base, args) {
   if (fn.apply === exports.Function_prototype_apply)
     return fn.apply(base, args);

@@ -191,8 +191,8 @@ Evaluator.prototype.ev = function(ctxt, nd) {
     }
   }
 
-  // invoke visitor method, passing context, node and original implementation of visitor method
-  return this[nd.type](ctxt, nd, Evaluator.prototype[nd.type]);
+  // invoke visitor method, passing context and node
+  return this[nd.type](ctxt, nd);
 };
 
 Evaluator.prototype.Program = function(ctxt, nd) {

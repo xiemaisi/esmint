@@ -7,12 +7,16 @@
  *
  * Arguments are interpreted one by one from left to right as follows:
  *
- *   - `--mixin FILE`: load `FILE` as a Node.js module, and mix the
- *     object exported by that module into the evaluator, overwriting any
- *     existing properties of the same name and recursively mixing in
- *     objects;
- *   - `FILE`: read `FILE` as UTF-8 source text and evaluate it;
- *   - `SOURCE`: interpret `SOURCE` directly as source text and evaluate it.
+ *   - `--mixin FILE`: load `FILE` as a Node.js module; if the module exports
+ *     an object, then the current evaluator is replaced with a new evaluator
+ *     that has the old one as its `__proto__` and contains all properties of
+ *     the exported object; in other words, the mixin can overwrite any
+ *     properties of the evaluator, but the old values will still be available
+ *     on `__proto__`;
+ *   - `FILE`: read `FILE` as UTF-8 source text and evaluate it with the current
+ *     evaluator;
+ *   - `SOURCE`: interpret `SOURCE` directly as source text and evaluate it with
+ *     the current evaluator.
  *
  * Note that any argument that is not `--mixin` and cannot be resolved as a `FILE` is interpreted
  * as a `SOURCE`.
@@ -26,21 +30,34 @@
  */
 
 var fs = require('fs'),
-    Evaluator = require('./Evaluator'),
-    ev = new Evaluator(), completion = {};
+  Evaluator = require('./Evaluator'),
+  ev = new Evaluator(),
+  completion = {};
 
-for (var i=2, n=process.argv.length; i<n; ++i) {
-    var arg = process.argv[i];
-    if (arg === '--mixin') {
-      util.extend(ev, require(process.argv[++i]));
-    } else {
-      completion = ev.ev(null, fs.existsSync(arg) ? fs.readFileSync(arg, 'utf-8') : arg);
-      if (completion.type !== 'normal')
-        break;
+for (var i = 2, n = process.argv.length; i < n; ++i) {
+  var arg = process.argv[i];
+  if (arg === '--mixin') {
+    var newProps = require(process.argv[++i]);
+    if (newProps && typeof newProps === 'object') {
+      // create property descriptor object to pass to Object.create
+      var newPropDescs = {};
+      for (var p in newProps) {
+        newPropDescs[p] = {
+          writable: true,
+          configurable: true,
+          value: newProps[p]
+        };
+      }
+      ev = Object.create(ev, newPropDescs);
     }
+  } else {
+    completion = ev.ev(null, fs.existsSync(arg) ? fs.readFileSync(arg, 'utf-8') : arg);
+    if (completion.type !== 'normal')
+      break;
+  }
 }
 
 if (completion.type === 'throw') {
-    console.error(String(completion.result.value));
-    process.exit(1);
+  console.error(String(completion.result.value));
+  process.exit(1);
 }
