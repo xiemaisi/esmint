@@ -39,9 +39,7 @@ function useStrict(stmts) {
 /** The global environment. */
 var globalEnv = new Environment(null, util.globalObj);
 
-function Evaluator(mixin) {
-  util.extend(this, mixin);
-}
+function Evaluator() {}
 
 Evaluator.prototype.hooks = require('./hooks').defaultHooks;
 
@@ -1022,4 +1020,4 @@ Evaluator.prototype.UpdateExpression = function(ctxt, nd) {
   return completion;
 };
 
-exports.Evaluator = Evaluator;
+module.exports = Evaluator;

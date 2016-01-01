@@ -4,7 +4,7 @@
     "author": "Max Schaefer <xiemaisi@gmail.com>",
     "description": "A meta-circular interpreter for ECMAScript",
     "dependencies" : {
-	  "acorn": "*"
+	      "acorn": "*"
     },
-    "license": "Eclipse"
+    "license": "MIT"
 }
