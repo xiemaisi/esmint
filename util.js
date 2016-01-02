@@ -28,6 +28,7 @@ exports.Object_getOwnPropertyDescriptor = exports.Object.getOwnPropertyDescripto
 exports.Object_defineProperty = exports.Object.defineProperty;
 exports.Object_prototype = exports.Object.prototype;
 exports.ReferenceError = globalObj.ReferenceError;
+exports.SyntaxError = globalObj.SyntaxError;
 exports.String = globalObj.String;
 exports.String_prototype_substring = exports.String.prototype.substring;
 exports.TypeError = globalObj.TypeError;
@@ -36,6 +37,14 @@ exports.Date = globalObj.Date;
 exports.forEach = function(xs, fn) {
   for (var i = 0, n = xs.length; i < n; ++i)
     fn(xs[i], i);
+};
+
+exports.some = function(xs, fn) {
+  for (var i = 0, n = xs.length; i < n; ++i) {
+    var r = fn(xs[i], i);
+    if (r)
+      return r;
+  }
 };
 
 exports.map = function(xs, fn) {

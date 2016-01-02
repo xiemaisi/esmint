@@ -65,7 +65,44 @@ Evaluator.prototype.annotateWithLabels = function(ast) {
     'SwitchStatement': record,
     'WhileStatement': record
   });
-}
+};
+
+Evaluator.prototype.checkFunctionDecls = function(ast) {
+  function doit(nd) {
+    switch (nd && nd.type) {
+      case 'BlockStatement':
+        for (var i = 0; i < nd.body.length; ++i) {
+          if (nd.body[i].type === 'FunctionDeclaration')
+            return new util.SyntaxError("Function declarations not allowed in blocks in strict mode." + nd.body[i].id.name);
+          var exn = doit(nd.body[i]);
+          if (exn)
+            return exn;
+        }
+        break;
+      case 'Program':
+        return util.some(nd.body, doit);
+      case 'FunctionDeclaration':
+        return util.some(nd.body.body, doit);
+      case 'WhileStatement':
+      case 'DoWhileStatement':
+      case 'CatchClause':
+      case 'LabeledStatement':
+      case 'ForInStatement':
+      case 'ForStatement':
+        return doit(nd.body);
+      case 'TryStatement':
+        return doit(nd.block) || doit(nd.handler) || doit(nd.finalizer);
+      case 'IfStatement':
+        return doit(nd.consequent) || doit(nd.alternate);
+      case 'SwitchStatement':
+        return util.some(nd.cases, doit);
+      case 'SwitchCase':
+        return util.some(nd.consequent, doit);
+    }
+  }
+
+  return doit(ast);
+};
 
 /** Declaration binding instantiation. */
 Evaluator.prototype.processDecl = function(ctxt, decl, name, init, configurable) {
@@ -203,6 +240,13 @@ Evaluator.prototype.ev = function(ctxt, nd) {
 Evaluator.prototype.Program = function(ctxt, nd) {
   this.annotateWithLabels(nd);
   ctxt = new ExecutionContext(globalEnv, util.globalObj, useStrict(nd.body), ctxt && ctxt.isEvalCode);
+
+  if (ctxt.strict) {
+    var exn = this.checkFunctionDecls(nd);
+    if (exn)
+      return new Completion('throw', new Result(exn), null);
+  }
+
   this.instantiateDeclBindings(ctxt, nd, ctxt.isEvalCode);
   return this.evseq(ctxt, nd.body);
 };
@@ -496,6 +540,12 @@ Evaluator.prototype.Function = function(ctxt, nd) {
         "   return thunk(this, arguments);\n" +
         "})"),
       thunk = this.thunkify(ctxt, nd, fn);
+
+    if (ctxt.strict || useStrict(nd.body.body)) {
+      var exn = this.checkFunctionDecls(nd);
+      if (exn)
+        return new Completion('throw', new Result(exn), null);
+    }
 
     return new Completion('normal', new Result(fn), null);
 };
