@@ -447,7 +447,7 @@ Evaluator.prototype.TryStatement = function(ctxt, nd) {
   if (completion.type === 'throw' && nd.handler) {
     var oldEnv = ctxt.lexicalEnvironment;
     ctxt.lexicalEnvironment = new Environment(oldEnv);
-    this.processDecl(ctxt, nd.handler, nd.handler.param.name, exn, false);
+    this.processDecl(ctxt, nd.handler, nd.handler.param.name, completion.result.value, false);
     completion = this.ev(ctxt, nd.handler.body);
     ctxt.lexicalEnvironment = oldEnv;
   }
@@ -509,11 +509,11 @@ Evaluator.prototype.thunkify = function(ctxt, nd, fn) {
 
     // set up binding for named function expression
     if (nd.type === 'FunctionExpression' && nd.id)
-      self.processDecl(ctxt, nd, nd.id.name, fn, false);
+      self.processDecl(new_ctxt, nd, nd.id.name, fn, false);
 
     // set up bindings for parameters
     util.forEach(nd.params, function(param, i) {
-      self.processDecl(ctxt, nd, param.name, args[i], false);
+      self.processDecl(new_ctxt, nd, param.name, args[i], false);
     });
 
     // set up bindings for variables declared in body
@@ -521,7 +521,7 @@ Evaluator.prototype.thunkify = function(ctxt, nd, fn) {
 
     // set up binding for `arguments` variable
     if (!new_env.hasBinding('arguments'))
-      self.processDecl(ctxt, nd, 'arguments', args, false);
+      self.processDecl(new_ctxt, nd, 'arguments', args, false);
 
     var completion = self.ev(new_ctxt, nd.body);
 
@@ -645,6 +645,8 @@ Evaluator.prototype.invokeEval = function(ctxt, nd, base, args) {
     } else {
       completion = this.ev({ isEvalCode: true }, prog);
     }
+    if (completion.type === 'normal' && !completion.result)
+      completion.result = new Result();
   } catch (e) {
     completion = new Completion('throw', new Result(e), null);
   }
@@ -942,12 +944,20 @@ Evaluator.prototype.UpdateExpression = function(ctxt, nd) {
   if (completion.type !== 'normal')
     return completion;
 
-  var oldVal = this.ToNumber(ctxt, nd, completion.result.value);
-  var newVal = this.evalBinOp(ctxt, nd, nd.operator[0], oldVal, 1);
+  completion = this.ToNumber(ctxt, nd, completion.result.value);
+  if (completion.type !== 'normal')
+    return completion;
+  var oldVal = completion.result.value;
+
+  completion = this.evalBinOp(ctxt, nd, nd.operator[0], oldVal, 1);
+  if (completion.type !== 'normal')
+    return completion;
+  var newVal = completion.result.value;
 
   completion = ref.set(newVal);
   if (completion.type !== 'normal')
     return completion;
+
   if (!nd.prefix)
     completion.result.value = oldVal;
   return completion;
