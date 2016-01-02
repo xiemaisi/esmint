@@ -568,6 +568,8 @@ Evaluator.prototype.ArrayExpression = function(ctxt, nd) {
       if (completion.type !== 'normal')
         return completion;
       elts[i] = completion.result.value;
+    } else {
+      ++elts.length;
     }
   }
 
