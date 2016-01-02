@@ -41,13 +41,11 @@ var globalEnv = new Environment(null, util.globalObj);
 
 function Evaluator() {}
 
-Evaluator.prototype.hooks = require('./hooks').defaultHooks;
-
-Evaluator.prototype.applyHook = function(completion, hook, nd) {
-  var r = this.hooks[hook](nd, completion.result.value);
-  if (r)
-    completion.result.value = r.result;
-  return completion;
+Evaluator.prototype.superCall = function(fn) {
+  var args = [];
+  for (var i=1;i<arguments.length;++i)
+    args[i-1] = arguments[i];
+  return this.__proto__[fn].apply(this, args);
 };
 
 /** Annotate every loop in a subtree with its set of labels. */
@@ -70,6 +68,10 @@ Evaluator.prototype.annotateWithLabels = function(ast) {
 }
 
 /** Declaration binding instantiation. */
+Evaluator.prototype.processDecl = function(ctxt, decl, name, init, configurable) {
+  ctxt.lexicalEnvironment.addBinding(name, init, configurable);
+};
+
 Evaluator.prototype.instantiateDeclBindings = function(ctxt, nd, configurable) {
   var self = this;
 
@@ -77,15 +79,10 @@ Evaluator.prototype.instantiateDeclBindings = function(ctxt, nd, configurable) {
     switch (nd && nd.type) {
       case 'FunctionDeclaration':
         var fn = self.ev(ctxt, nd).result.value;
-        var h = self.hooks.declare(nd, nd.id.name, fn, false, -1, false);
-        if (h) {
-          fn = h.result;
-        }
-        ctxt.variableEnvironment.addBinding(nd.id.name, fn, configurable);
+        self.processDecl(ctxt, nd, nd.id.name, fn, configurable);
         break;
       case 'VariableDeclarator':
-        self.hooks.declare(nd, nd.id.name, void(0), false, -1, false);
-        ctxt.variableEnvironment.addBinding(nd.id.name, void(0), configurable);
+        self.processDecl(ctxt, nd, nd.id.name, void(0), configurable);
         break;
       case 'VariableDeclaration':
         util.forEach(nd.declarations, doit);
@@ -165,15 +162,23 @@ Evaluator.prototype.evref = function(ctxt, nd) {
     } else {
       prop = util.String(nd.property.name);
     }
-    return new Completion('normal', new Result(new PropRef(this, base, prop, ctxt.strict)), null);
+    return this.evalPropRef(ctxt, nd, base, prop);
   } else if (nd.type === 'VariableDeclaration') {
     return this.evref(ctxt, nd.declarations[0].id);
   } else if (nd.type === 'Identifier') {
-    return new Completion('normal', new Result(new VarRef(this, ctxt.lexicalEnvironment, nd.name, ctxt.strict)), null);
+    return this.evalVarRef(ctxt, nd, nd.name);
   } else {
     throw new util.Error("Bad reference: " + nd.type);
   }
-}
+};
+
+Evaluator.prototype.evalPropRef = function(ctxt, nd, base, prop) {
+  return new Completion('normal', new Result(new PropRef(base, prop, ctxt.strict)), null);
+};
+
+Evaluator.prototype.evalVarRef = function(ctxt, nd, name) {
+  return new Completion('normal', new Result(new VarRef(ctxt.lexicalEnvironment, name, ctxt.strict)), null);
+};
 
 /** Evaluate a statement, an expression, or an entire program. */
 Evaluator.prototype.ev = function(ctxt, nd) {
@@ -184,7 +189,7 @@ Evaluator.prototype.ev = function(ctxt, nd) {
       if (e instanceof SyntaxError) {
         // Acorn treats this as a syntax error, but it should be a ReferenceError
         if (e.message.indexOf("Assigning to rvalue") >= 0)
-          return new Completion('throw', new Result(new util.ReferenceError()), null);
+          return new Completion('throw', new Result(new util.ReferenceError(e.message)), null);
         return new Completion('throw', new Result(e), null);
       }
       throw e;
@@ -211,15 +216,19 @@ Evaluator.prototype.ReturnStatement = function(ctxt, nd) {
   var completion;
   if (nd.argument) {
     completion = this.ev(ctxt, nd.argument);
-    if (completion.type === 'normal')
+    if (completion.type === 'normal') {
+      completion.result.value = this.interceptReturn(ctxt, nd, completion.result.value);
       completion.type = 'return';
+    }
   } else {
-    completion = new Completion('return', new Result(), null);
+    completion = new Completion('return', new Result(this.interceptReturn(ctxt, nd)), null);
   }
-  if (completion.type === 'return')
-    this.applyHook(completion, '_return', nd);
   return completion;
 };
+
+Evaluator.prototype.interceptReturn = function(ctxt, nd, result) {
+  return result;
+}
 
 Evaluator.prototype.EmptyStatement = function(ctxt, nd) {
   return new Completion('normal', null, null);
@@ -227,9 +236,14 @@ Evaluator.prototype.EmptyStatement = function(ctxt, nd) {
 
 Evaluator.prototype.ThrowStatement = function(ctxt, nd) {
   var completion = this.ev(ctxt, nd.argument);
+  if (completion.type === 'normal')
+    completion.result.value = this.interceptThrow(ctxt, nd, completion.result.value);
   completion.type = 'throw';
-  this.applyHook(completion, '_throw', nd);
   return completion;
+};
+
+Evaluator.prototype.interceptThrow = function(ctxt, nd, exn) {
+  return exn;
 };
 
 Evaluator.prototype.IfStatement =
@@ -237,13 +251,17 @@ Evaluator.prototype.ConditionalExpression = function(ctxt, nd) {
     var completion = this.ev(ctxt, nd.test);
     if (completion.type !== 'normal')
       return completion;
-    this.applyHook(completion, 'conditional', nd.test);
+    completion.result.value = this.interceptCond(ctxt, nd, completion.result.value);
     if (!!completion.result.value)
       return this.ev(ctxt, nd.consequent);
     if (nd.alternate)
       return this.ev(ctxt, nd.alternate);
     return new Completion('normal', null, null);
-  };
+};
+
+Evaluator.prototype.interceptCond = function(ctxt, nd, cond) {
+  return cond;
+};
 
 Evaluator.prototype.SwitchStatement = function(ctxt, nd) {
   var completion = this.ev(ctxt, nd.discriminant);
@@ -259,24 +277,8 @@ Evaluator.prototype.SwitchStatement = function(ctxt, nd) {
       if (completion.type !== 'normal')
         return completion;
 
-      var op = '===',
-          l = discr,
-          r = completion.result.value;
-      var h = this.hooks.binaryPre(nd, op, l, r, false, true, false);
-      if (h) {
-        op = h.op;
-        l = h.left;
-        r = h.right;
-      }
-      var res = binop[op](l, r);
-      h = this.hooks.binary(nd, op, l, r, res, false, false, false);
-      if (h) {
-        res = h.res;
-      }
-
-      completion.result.value = res;
-      this.applyHook(completion, 'conditional', cse.test);
-      if (completion.result.value)
+      var cond = this.evalBinOp(ctxt, cse, '===', discr, completion.result.value).result.value;
+      if (this.interceptCond(ctxt, cse, cond))
         break;
     }
   }
@@ -303,8 +305,8 @@ Evaluator.prototype.WhileStatement = function(ctxt, nd) {
     completion = this.ev(ctxt, nd.test);
     if (completion.type !== 'normal')
       return completion;
-    this.applyHook(completion, 'conditional', nd.test);
-    if (!completion.result.value)
+    var cond = this.interceptCond(ctxt, nd.test, completion.result.value);
+    if (!cond)
       return new Completion('normal', result, null);
     completion = this.ev(ctxt, nd.body);
     result = completion.result || result;
@@ -318,7 +320,7 @@ Evaluator.prototype.WhileStatement = function(ctxt, nd) {
 
 Evaluator.prototype.DoWhileStatement = function(ctxt, nd) {
   var completion,
-      result = null;
+      result = null, cond;
 
   do {
     completion = this.ev(ctxt, nd.body);
@@ -331,8 +333,8 @@ Evaluator.prototype.DoWhileStatement = function(ctxt, nd) {
     completion = this.ev(ctxt, nd.test);
     if (completion.type !== 'normal')
       return completion;
-    this.applyHook(completion, 'conditional', nd.test);
-  } while (!!completion.result.value);
+    cond = this.interceptCond(ctxt, nd.test, completion.result.value);
+  } while (!!cond);
 
   return new Completion('normal', result, null);
 };
@@ -352,8 +354,8 @@ Evaluator.prototype.ForStatement = function(ctxt, nd) {
       completion = this.ev(ctxt, nd.test);
       if (completion.type !== 'normal')
         return completion;
-      this.applyHook(completion, 'conditional', nd.test);
-      if (!completion.result.value)
+      var cond = this.interceptCond(ctxt, nd.test, completion.result.value);
+      if (!cond)
         return new Completion('normal', result, null);
     }
 
@@ -380,8 +382,9 @@ Evaluator.prototype.ForInStatement = function(ctxt, nd) {
   completion = this.ev(ctxt, nd.right);
   if (completion.type !== 'normal')
     return completion;
-  this.applyHook(completion, 'forinObject', nd.right);
-  if (completion.result.value === null || completion.result.value === void(0))
+
+  dom = this.interceptForInObject(ctxt, nd.right, completion.result.value);
+  if (dom === null || dom === void(0))
     return new Completion('normal', null, null);
   dom = util.Object(completion.result.value);
 
@@ -402,6 +405,10 @@ Evaluator.prototype.ForInStatement = function(ctxt, nd) {
   return new Completion('normal', result, null);
 };
 
+Evaluator.prototype.interceptForInObject = function(ctxt, nd, obj) {
+  return obj;
+};
+
 Evaluator.prototype.BreakStatement = function(ctxt, nd) {
   return new Completion('break', null, nd.label && nd.label.name);
 };
@@ -411,9 +418,7 @@ Evaluator.prototype.ContinueStatement = function(ctxt, nd) {
 };
 
 Evaluator.prototype.ExpressionStatement = function(ctxt, nd) {
-  var completion = this.ev(ctxt, nd.expression);
-  this.hooks.endExpression(nd);
-  return completion;
+  return this.ev(ctxt, nd.expression);
 };
 
 Evaluator.prototype.BlockStatement = function(ctxt, nd) {
@@ -442,12 +447,7 @@ Evaluator.prototype.TryStatement = function(ctxt, nd) {
   if (completion.type === 'throw' && nd.handler) {
     var oldEnv = ctxt.lexicalEnvironment;
     ctxt.lexicalEnvironment = new Environment(oldEnv);
-    var exn = completion.result.value;
-    var h = this.hooks.declare(nd.handler, nd.handler.param.name, exn, false, -1, true);
-    if (h) {
-      exn = h.result;
-    }
-    ctxt.lexicalEnvironment.addBinding(nd.handler.param.name, exn);
+    this.processDecl(ctxt, nd.handler, nd.handler.param.name, exn, false);
     completion = this.ev(ctxt, nd.handler.body);
     ctxt.lexicalEnvironment = oldEnv;
   }
@@ -465,85 +465,77 @@ Evaluator.prototype.WithStatement = function(ctxt, nd) {
   var completion = this.ev(ctxt, nd.object);
   if (completion.type !== 'normal')
     return completion;
-  this.applyHook(completion, '_with', nd.object);
-  if (completion.result.value === null || completion.result.value === void(0))
+
+  var withObj = this.interceptWith(ctxt, nd.object, completion.result.value);
+  if (withObj === null || withObj === void(0))
     return new Completion('throw', new Result(new util.TypeError()), null);
 
   var oldEnv = ctxt.lexicalEnvironment;
-  ctxt.lexicalEnvironment = new Environment(oldEnv, util.Object(completion.result.value));
+  ctxt.lexicalEnvironment = new Environment(oldEnv, util.Object(withObj));
   completion = this.ev(ctxt, nd.body);
   ctxt.lexicalEnvironment = oldEnv;
   return completion;
 };
 
+Evaluator.prototype.interceptWith = function(ctxt, nd, obj) {
+  return obj;
+};
+
 Evaluator.prototype.FunctionDeclaration =
 Evaluator.prototype.FunctionExpression = function(ctxt, nd) {
+  return this.Function(ctxt, nd);
+};
+
+Evaluator.prototype.Function = function(ctxt, nd) {
     var fn_name = nd.id ? nd.id.name : "",
-      self = this,
-      strict = ctxt.strict || useStrict(nd.body.body),
-      isEvalCode = ctxt.isEvalCode,
       fn_param_names = util.map(nd.params, function(param) {
         return param.name;
       }),
       fn = eval("(function " + fn_name + " (" + util.join(fn_param_names, ", ") + ") {\n" +
         "   return thunk(this, arguments);\n" +
-        "})");
+        "})"),
+      thunk = this.thunkify(ctxt, nd, fn);
 
-    function thunk(thiz, args) {
-      self.hooks.functionEnter(nd, fn, thiz, args);
-      while (true) {
-        var isBacktrack = false;
-        var new_env = new Environment(ctxt.lexicalEnvironment),
-            new_ctxt = new ExecutionContext(new_env, thiz, strict, isEvalCode);
-        if (nd.type === 'FunctionExpression' && fn_name) {
-          var h = self.hooks.declare(nd, fn_name, fn, false, -1, false);
-          if (h) {
-            fn = h.result;
-          }
-          new_env.addBinding(fn_name, fn);
-        }
-        util.forEach(fn_param_names, function(param, i) {
-          var arg = args[i];
-          var h = self.hooks.declare(nd, param, arg, true, i, false);
-          if (h) {
-            arg = h.result;
-          }
-          new_env.addBinding(param, arg);
-        });
-        self.instantiateDeclBindings(new_ctxt, nd.body, ctxt.isEvalCode);
-        if (!new_env.hasBinding('arguments')) {
-          var h = self.hooks.declare(nd, 'arguments', args, true, -1, false);
-          if (h) {
-            args = h.result;
-          }
-          new_env.addBinding('arguments', args);
-        }
+    return new Completion('normal', new Result(fn), null);
+};
 
-        var completion = self.ev(new_ctxt, nd.body);
+Evaluator.prototype.thunkify = function(ctxt, nd, fn) {
+  var self = this,
+      strict = ctxt.strict || useStrict(nd.body.body);
 
-        var returnVal = completion.type === 'return' && completion.result ? completion.result.value : void(0);
-        var wrappedExceptionVal = completion.type === 'throw' ? {
-          exception: completion.result.value
-        } : void(0);
-        var r = self.hooks.functionExit(nd, returnVal, wrappedExceptionVal);
-        if (r) {
-          returnVal = r.returnVal;
-          wrappedExceptionVal = r.wrappedExceptionVal;
-          isBacktrack = !!r.isBacktrack;
-        }
-        if (!isBacktrack) {
-          if (wrappedExceptionVal)
-            throw wrappedExceptionVal.exception;
-          else
-            return returnVal;
-        }
-      }
-    }
-    return this.applyHook(new Completion('normal', new Result(fn), null), 'literal', nd, false);
+  return function(thiz, args) {
+    var new_env = new Environment(ctxt.lexicalEnvironment),
+        new_ctxt = new ExecutionContext(new_env, thiz, strict, ctxt.isEvalCode);
+
+    // set up binding for named function expression
+    if (nd.type === 'FunctionExpression' && nd.id)
+      self.processDecl(ctxt, nd, nd.id.name, fn, false);
+
+    // set up bindings for parameters
+    util.forEach(nd.params, function(param, i) {
+      self.processDecl(ctxt, nd, param.name, args[i], false);
+    });
+
+    // set up bindings for variables declared in body
+    self.instantiateDeclBindings(new_ctxt, nd.body, ctxt.isEvalCode);
+
+    // set up binding for `arguments` variable
+    if (!new_env.hasBinding('arguments'))
+      self.processDecl(ctxt, nd, 'arguments', args, false);
+
+    var completion = self.ev(new_ctxt, nd.body);
+
+    if (completion.type === 'throw')
+      throw completion.result.value;
+    else if (completion.type === 'return')
+      return completion.result.value;
+    else
+      return void(0);
   };
+};
 
 Evaluator.prototype.Literal = function(ctxt, nd) {
-  return this.applyHook(new Completion('normal', new Result(nd.value), null), 'literal', nd, false);
+  return new Completion('normal', new Result(nd.value), null);
 };
 
 Evaluator.prototype.ThisExpression = function(ctxt, nd) {
@@ -571,12 +563,11 @@ Evaluator.prototype.ArrayExpression = function(ctxt, nd) {
     }
   }
 
-  return this.applyHook(new Completion('normal', new Result(elts), null), 'literal', nd, false);
+  return new Completion('normal', new Result(elts), null);
 };
 
 Evaluator.prototype.ObjectExpression = function(ctxt, nd) {
-  var obj = util.Object_create(util.Object_prototype),
-      hasAccessors = false;
+  var obj = util.Object_create(util.Object_prototype);
 
   for (var i = 0, n = nd.properties.length; i < n; ++i) {
     var prop = nd.properties[i],
@@ -594,15 +585,13 @@ Evaluator.prototype.ObjectExpression = function(ctxt, nd) {
     if (prop.kind === 'init') {
       obj[name] = completion.result.value;
     } else if (prop.kind === 'get') {
-      hasAccessors = true;
       util.defineGetter(obj, name, completion.result.value);
     } else {
-      hasAccessors = true;
       util.defineSetter(obj, name, completion.result.value);
     }
   }
 
-  return this.applyHook(new Completion('normal', new Result(obj), null), 'literal', nd, hasAccessors);
+  return new Completion('normal', new Result(obj), null);
 };
 
 Evaluator.prototype.CallExpression =
@@ -614,9 +603,9 @@ Evaluator.prototype.NewExpression = function(ctxt, nd) {
       completion = this.evref(ctxt, nd.callee);
       if (completion.type !== 'normal')
         return completion;
-      base = completion.result.value.base;
+      base = completion.result.value.getBase();
       if (base === null || base === void(0))
-        return new Completion('throw', new Result(new util.ReferenceError()), null);
+        return new Completion('throw', new Result(new util.ReferenceError("Cannot invoke method on " + base)), null);
       base = util.Object(base);
 
       completion = completion.result.value.get();
@@ -638,61 +627,45 @@ Evaluator.prototype.NewExpression = function(ctxt, nd) {
       args[i] = completion.result.value;
     }
 
-    var isConstructor = nd.type === 'NewExpression',
-        isMethod = nd.callee.type === 'MemberExpression';
-    var r = this.hooks.invokeFunPre(nd, callee, base, args, isConstructor, isMethod);
-    var skip = false;
-    if (r) {
-      callee = r.f;
-      base = r.base;
-      args = r.args;
-      skip = r.skip;
-    }
-
-    if (skip) {
-      completion = new Completion('return', new Result(), null);
-    } else {
-      if (nd.type === 'CallExpression' && callee === eval) {
-        if (typeof args[0] !== 'string')
-          return new Completion('normal', new Result(args[0]), null);
-        try {
-          var isDirect = nd.callee.type === 'Identifier' && nd.callee.name === 'eval';
-          var prog = parse(args[0], isDirect && ctxt.strict);
-
-          if (isDirect) {
-            var wasEvalCode = ctxt.isEvalCode;
-            ctxt.isEvalCode = true;
-            completion = this.evseq(ctxt, prog.body);
-            ctxt.isEvalCode = wasEvalCode;
-          } else {
-            completion = this.ev({ isEvalCode: true }, prog);
-          }
-        } catch (e) {
-          completion = new Completion('throw', new Result(e), null);
-        }
-      } else {
-        completion = this.invoke(callee, base, args, isConstructor);
-      }
-      if (completion.type === 'return') {
-        r = this.hooks.invokeFun(nd, callee, base, args, completion.result.value, isConstructor, isMethod);
-        if (r)
-          completion.result.value = r.result;
-      }
-    }
-    return completion;
+    return this.invoke(ctxt, nd, callee, base, args);
 };
 
-Evaluator.prototype.invoke = function(callee, base, args, isConstructor) {
+Evaluator.prototype.invokeEval = function(ctxt, nd, base, args) {
+  if (typeof args[0] !== 'string')
+    return new Completion('normal', new Result(args[0]), null);
   try {
-    var v;
-    if (isConstructor) {
-      v = util.construct(callee, args);
+    var isDirect = nd.callee.type === 'Identifier' && nd.callee.name === 'eval';
+    var prog = parse(args[0], isDirect && ctxt.strict);
+
+    if (isDirect) {
+      var wasEvalCode = ctxt.isEvalCode;
+      ctxt.isEvalCode = true;
+      completion = this.evseq(ctxt, prog.body);
+      ctxt.isEvalCode = wasEvalCode;
     } else {
-      v = util.apply(callee, base, args);
+      completion = this.ev({ isEvalCode: true }, prog);
     }
-    return new Completion('normal', new Result(v), null);
   } catch (e) {
-    return new Completion('throw', new Result(e), null);
+    completion = new Completion('throw', new Result(e), null);
+  }
+  return completion;
+};
+
+Evaluator.prototype.invoke = function(ctxt, nd, callee, base, args) {
+  if (nd.type === 'CallExpression' && callee === eval) {
+    return this.invokeEval(ctxt, nd, base, args);
+  } else {
+    try {
+      var v;
+      if (nd.type === 'NewExpression') {
+        v = util.construct(callee, args);
+      } else {
+        v = util.apply(callee, base, args);
+      }
+      return new Completion('normal', new Result(v), null);
+    } catch (e) {
+      return new Completion('throw', new Result(e), null);
+    }
   }
 };
 
@@ -710,6 +683,32 @@ util.forEach(['&', '|', '^'], function(op) {
   lconv[op] = rconv[op] = 'ToInt32';
 });
 
+Evaluator.prototype.evalBinOp = function(ctxt, nd, op, l, r) {
+  var completion;
+
+  // apply conversions
+  if (lconv[op]) {
+    completion = this[lconv[op]](ctxt, nd, l);
+    if (completion.type !== 'normal')
+      return completion;
+    l = completion.result.value;
+  }
+
+  if (rconv[op]) {
+    completion = this[rconv[op]](ctxt, nd, r);
+    if (completion.type !== 'normal')
+      return completion;
+    r = completion.result.value;
+  }
+
+  // special checks for `in` and `instanceof`
+  if (op === 'in' || op === 'instanceof')
+    if (this.typeOf(r) !== 'object')
+      return new Completion('throw', new Result(new util.TypeError()), null);
+
+  return new Completion('normal', new Result(binop[op](l, r)), null);
+};
+
 Evaluator.prototype.BinaryExpression = function(ctxt, nd) {
   var completion, op = nd.operator, l, r;
 
@@ -723,40 +722,7 @@ Evaluator.prototype.BinaryExpression = function(ctxt, nd) {
     return completion;
   r = completion.result.value;
 
-  var h = this.hooks.binaryPre(nd, op, l, r, false, false, false);
-  if (h) {
-    op = h.op;
-    l = h.left;
-    r = h.right;
-  }
-
-  // apply conversions
-  if (lconv[op]) {
-    completion = this[lconv[op]](l);
-    if (completion.type !== 'normal')
-      return completion;
-    l = completion.result.value;
-  }
-  if (rconv[op]) {
-    completion = this[rconv[op]](r);
-    if (completion.type !== 'normal')
-      return completion;
-    r = completion.result.value;
-  }
-
-  // special checks for `in` and `instanceof`
-  if (op === 'in' || op === 'instanceof')
-    if (this.typeOf(r) !== 'object')
-      return new Completion('throw', new Result(new util.TypeError()), null);
-
-  var res = binop[op](l, r);
-
-  h = this.hooks.binary(nd, op, l, r, res, false, false, false);
-  if (h) {
-    res = h.res;
-  }
-
-  return new Completion('normal', new Result(res), null);
+  return this.evalBinOp(ctxt, nd, op, l, r);
 };
 
 Evaluator.prototype.UnaryExpression = function(ctxt, nd) {
@@ -799,99 +765,91 @@ Evaluator.prototype.UnaryExpression = function(ctxt, nd) {
       completion = this.ev(ctxt, nd.argument);
       if (completion.type !== 'normal')
         return completion;
-      var op = nd.operator, arg = completion.result.value;
 
-      var h = this.hooks.unaryPre(nd, op, arg);
-      if (h) {
-        op = h.op;
-        arg = h.left;
-      }
-
-      // apply conversion
-      var conv = (op === '~' && 'ToInt32' || op === '!' && 'ToBoolean' || 'ToNumber');
-      completion = this[conv](arg);
-      if (completion.type !== 'normal')
-        return completion;
-      arg = completion.result.value;
-
-      // evaluate operator
-      var res = unop[op](arg);
-
-      h = this.hooks.unary(nd, op, arg, res);
-      if (h) {
-        res = h.result;
-      }
-
-      return new Completion('normal', new Result(res), null);
+      return this.evalUnOp(ctxt, nd, nd.operator, completion.result.value);
   }
 };
 
-Evaluator.prototype.ToInt32 = function(x) {
-  var completion = this.ToNumber(x);
+Evaluator.prototype.evalUnOp = function(ctxt, nd, op, arg) {
+  // apply conversion
+  var conv = (op === '~' && 'ToInt32' || op === '!' && 'ToBoolean' || 'ToNumber');
+  completion = this[conv](ctxt, nd, arg);
+  if (completion.type !== 'normal')
+    return completion;
+  arg = completion.result.value;
+
+  // evaluate operator
+  var res = unop[op](arg);
+
+  return new Completion('normal', new Result(res), null);
+};
+
+Evaluator.prototype.ToInt32 = function(ctxt, nd, x) {
+  var completion = this.ToNumber(ctxt, nd, x);
   if (completion.type !== 'normal')
     return completion;
   return new Completion('normal', new Result(completion.result.value|0), null);
 };
 
-Evaluator.prototype.ToUint32 = function(x) {
-  var completion = this.ToNumber(x);
+Evaluator.prototype.ToUint32 = function(ctxt, nd, x) {
+  var completion = this.ToNumber(ctxt, nd, x);
   if (completion.type !== 'normal')
     return completion;
   return new Completion('normal', new Result(completion.result.value>>>0), null);
 };
 
-Evaluator.prototype.ToNumber = function(x) {
+Evaluator.prototype.ToNumber = function(ctxt, nd, x) {
   if (this.typeOf(x) !== 'object')
     return new Completion('normal', new Result(+x), null);
-  var completion = this.ToPrimitive(x, 'number');
+  var completion = this.ToPrimitive(ctxt, nd, x, 'number');
   if (completion.type !== 'normal')
     return completion;
   return new Completion('normal', new Result(+completion.result.value), null);
 };
 
-Evaluator.prototype.ToBoolean = function(x) {
+Evaluator.prototype.ToBoolean = function(ctxt, nd, x) {
   return new Completion('normal', new Result(!!x), null);
 };
 
-Evaluator.prototype.ToPrimitive = function(x, preferredType) {
+Evaluator.prototype.ToPrimitive = function(ctxt, nd, x, preferredType) {
   if (this.typeOf(x) !== 'object')
     return new Completion('normal', new Result(x), null);
-  return this.DefaultValue(x, preferredType);
+  return this.DefaultValue(ctxt, nd, x, preferredType);
 };
 
-Evaluator.prototype.DefaultValue = function(o, preferredType) {
+Evaluator.prototype.DefaultValue = function(ctxt, nd, o, preferredType) {
   if (!preferredType)
     preferredType = o instanceof util.Date ? 'string' : 'number';
 
   var completion;
   if (preferredType === 'string') {
-    var toString = new PropRef(this, o, 'toString').get().result.value;
+    var toString = new PropRef(o, 'toString').get().result.value;
     if (typeof toString === 'function') {
-      completion = this.invoke(toString, o, [], false);
+      completion = this.invoke(ctxt, nd, toString, o, [], false);
       if (completion.type !== 'normal' ||
           this.typeOf(completion.result.value) !== 'object')
         return completion;
     }
 
-    var valueOf = new PropRef(this, o, 'valueOf').get().result.value;
+    var valueOf = new PropRef(o, 'valueOf').get().result.value;
     if (typeof valueOf === 'function') {
-      completion = this.invoke(valueOf, o, [], false);
+      completion = this.invoke(ctxt, nd, valueOf, o, [], false);
       if (completion.type !== 'normal' ||
           this.typeOf(completion.result.value) !== 'object')
         return completion;
     }
   } else {
-    var valueOf = new PropRef(this, o, 'valueOf').get().result.value;
+    var valueOf = new PropRef(o, 'valueOf').get().result.value;
     if (typeof valueOf === 'function') {
-      completion = this.invoke(valueOf, o, [], false);
+      completion = this.invoke(ctxt, nd, valueOf, o, [], false);
       if (completion.type !== 'normal' ||
           this.typeOf(completion.result.value) !== 'object')
         return completion;
     }
 
-    var toString = new PropRef(this, o, 'toString').get().result.value;
+    var toString = new PropRef(o, 'toString').get().result.value;
     if (typeof toString === 'function') {
-      completion = this.invoke(toString, o, [], false);
+      completion = this.invoke(ctxt, nd, toString, o, [], false);
       if (completion.type !== 'normal' ||
           this.typeOf(completion.result.value) !== 'object')
         return completion;
@@ -916,16 +874,16 @@ Evaluator.prototype.LogicalExpression = function(ctxt, nd) {
     completion = this.ev(ctxt, nd.left);
     if (completion.type !== 'normal')
       return completion;
-    this.applyHook(completion, 'conditional', nd.left);
-    if (!completion.result.value)
+    var cond = this.interceptCond(ctxt, nd.left, completion.result.value);
+    if (!cond)
       return completion;
     return this.ev(ctxt, nd.right);
   } else {
     completion = this.ev(ctxt, nd.left);
     if (completion.type !== 'normal')
       return completion;
-    this.applyHook(completion, 'conditional', nd.left);
-    if (!!completion.result.value)
+    var cond = this.interceptCond(ctxt, nd.left, completion.result.value);
+    if (!!cond)
       return completion;
     return this.ev(ctxt, nd.right);
   }
@@ -966,23 +924,11 @@ Evaluator.prototype.AssignmentExpression = function(ctxt, nd) {
     if (completion.type !== 'normal')
       return completion;
 
-    var l = completion.result.value,
-      r = rhs;
-    var h = this.hooks.binaryPre(nd, op, l, r, true, false, false);
-    if (h) {
-      op = h.op;
-      l = h.left;
-      r = h.right;
-    }
+    completion = this.evalBinOp(ctxt, nd, op, completion.result.value, rhs);
+    if (completion.type !== 'normal')
+      return completion;
 
-    var res = binop[op](l, r);
-
-    h = this.hooks.binary(nd, op, l, r, res, true, false, false);
-    if (h) {
-      res = h.res;
-    }
-
-    return lhs.set(res);
+    return lhs.set(completion.result.value);
   }
 };
 
@@ -995,28 +941,15 @@ Evaluator.prototype.UpdateExpression = function(ctxt, nd) {
   completion = ref.get();
   if (completion.type !== 'normal')
     return completion;
-  oldval = +completion.result.value;
 
-  var op = nd.operator[0],
-    l = oldval,
-    r = 1;
-  var h = this.hooks.binaryPre(nd, op, l, r, false, false, false);
-  if (h) {
-    op = h.op;
-    l = h.left;
-    r = h.right;
-  }
-  var res = binop[op](l, r);
-  h = this.hooks.binary(nd, op, l, r, res, false, false, false);
-  if (h) {
-    res = h.res;
-  }
+  var oldVal = this.ToNumber(ctxt, nd, completion.result.value);
+  var newVal = this.evalBinOp(ctxt, nd, nd.operator[0], oldVal, 1);
 
-  completion = ref.set(res);
+  completion = ref.set(newVal);
   if (completion.type !== 'normal')
     return completion;
   if (!nd.prefix)
-    completion.result.value = oldval;
+    completion.result.value = oldVal;
   return completion;
 };
 
