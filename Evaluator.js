@@ -488,10 +488,11 @@ Evaluator.prototype.FunctionExpression = function(ctxt, nd) {
 
 Evaluator.prototype.Function = function(ctxt, nd) {
     var fn_name = nd.id ? nd.id.name : "",
-      fn_param_names = util.map(nd.params, function(param) {
-        return param.name;
+      fn_param_names = util.map(nd.params, function(param, i) {
+        return "p" + i;
       }),
       fn = eval("(function " + fn_name + " (" + util.join(fn_param_names, ", ") + ") {\n" +
+        "   'use strict';\n" + // prevents coercion of `this`
         "   return thunk(this, arguments);\n" +
         "})"),
       thunk = this.thunkify(ctxt, nd, fn);
@@ -504,6 +505,13 @@ Evaluator.prototype.thunkify = function(ctxt, nd, fn) {
       strict = ctxt.strict || useStrict(nd.body.body);
 
   return function(thiz, args) {
+    if (!strict) {
+      if (thiz === null || thiz === void(0))
+        thiz = util.globalObj;
+      else
+        thiz = util.Object(thiz);
+    }
+
     var new_env = new Environment(ctxt.lexicalEnvironment),
         new_ctxt = new ExecutionContext(new_env, thiz, strict, ctxt.isEvalCode);
 
@@ -596,7 +604,7 @@ Evaluator.prototype.ObjectExpression = function(ctxt, nd) {
 
 Evaluator.prototype.CallExpression =
 Evaluator.prototype.NewExpression = function(ctxt, nd) {
-    var completion, base = util.globalObj,
+    var completion, base = void(0),
         callee, args;
 
     if (nd.type === 'CallExpression' && nd.callee.type === 'MemberExpression') {
