@@ -51,7 +51,15 @@ for (var i = 2, n = process.argv.length; i < n; ++i) {
       ev = Object.create(ev, newPropDescs);
     }
   } else {
-    completion = ev.ev(null, fs.existsSync(arg) ? fs.readFileSync(arg, 'utf-8') : arg);
+    var fileName, source;
+    if (fs.existsSync(arg)) {
+      fileName = arg;
+      source = fs.readFileSync(arg, 'utf-8');
+    } else {
+      fileName = "command line argument #" + (i-1);
+      source = arg;
+    }
+    completion = ev.evaluate(fileName, source);
     if (completion.type !== 'normal')
       break;
   }

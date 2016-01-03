@@ -15,13 +15,6 @@ var util = require('./util'),
   operators = require('./operators'),
   unop = operators.unop, binop = operators.binop;
 
-function parse(src, isStrict) {
-  var p = new acorn.Parser({}, src);
-  if (isStrict)
-    p.strict = true;
-  return p.parse();
-}
-
 function useStrict(stmts) {
   for (var i=0; i<stmts.length; ++i) {
     var stmt = stmts[i];
@@ -217,22 +210,37 @@ Evaluator.prototype.evalVarRef = function(ctxt, nd, name) {
   return new Completion('normal', new Result(new VarRef(ctxt.lexicalEnvironment, name, ctxt.strict)), null);
 };
 
+Evaluator.prototype.parse = function(sourceFile, src, isStrict) {
+  var p = new acorn.Parser({ locations: true, sourceFile: sourceFile }, src);
+  if (isStrict)
+    p.strict = true;
+  try {
+    return new Completion('normal', new Result(p.parse()), null);
+  } catch(e) {
+    if (e instanceof SyntaxError) {
+      // Acorn treats this as a syntax error, but it should be a ReferenceError
+      if (e.message.indexOf("Assigning to rvalue") >= 0)
+        return new Completion('throw', new Result(new util.ReferenceError(e.message)), null);
+      return new Completion('throw', new Result(e), null);
+    }
+    throw e;
+  }
+};
+
+Evaluator.prototype.ppPos = function(nd) {
+  return nd.loc.source + ":" + nd.loc.start.line + "," + nd.loc.start.column +
+                         "-" + nd.loc.end.line + "," + nd.loc.end.column;
+};
+
+Evaluator.prototype.evaluate = function(sourceFile, source) {
+  var completion = this.parse(sourceFile, source, false);
+  if (completion.type === 'normal')
+    completion = this.ev(null, completion.result.value);
+  return completion;
+};
+
 /** Evaluate a statement, an expression, or an entire program. */
 Evaluator.prototype.ev = function(ctxt, nd) {
-  if (typeof nd === 'string') {
-    try {
-      nd = parse(nd, ctxt && ctxt.strict);
-    } catch (e) {
-      if (e instanceof SyntaxError) {
-        // Acorn treats this as a syntax error, but it should be a ReferenceError
-        if (e.message.indexOf("Assigning to rvalue") >= 0)
-          return new Completion('throw', new Result(new util.ReferenceError(e.message)), null);
-        return new Completion('throw', new Result(e), null);
-      }
-      throw e;
-    }
-  }
-
   // invoke visitor method, passing context and node
   return this[nd.type](ctxt, nd);
 };
@@ -698,9 +706,14 @@ Evaluator.prototype.NewExpression = function(ctxt, nd) {
 Evaluator.prototype.invokeEval = function(ctxt, nd, base, args) {
   if (typeof args[0] !== 'string')
     return new Completion('normal', new Result(args[0]), null);
+
+  var completion;
   try {
     var isDirect = nd.callee.type === 'Identifier' && nd.callee.name === 'eval';
-    var prog = parse(args[0], isDirect && ctxt.strict);
+    completion = this.parse("eval at " + this.ppPos(nd), args[0], isDirect && ctxt.strict);
+    if (completion.type !== 'normal')
+      return completion;
+    var prog = completion.result.value;
 
     if (isDirect) {
       var wasEvalCode = ctxt.isEvalCode;
@@ -749,20 +762,21 @@ lconv['>>>'] = rconv['>>>'] = 'ToUint32';
 util.forEach(['&', '|', '^'], function(op) {
   lconv[op] = rconv[op] = 'ToInt32';
 });
+lconv['in'] = 'ToString';
 
 Evaluator.prototype.evalBinOp = function(ctxt, nd, op, l, r) {
   var completion;
 
   // apply conversions
   if (lconv[op]) {
-    completion = this[lconv[op]](ctxt, nd, l);
+    completion = this[lconv[op]](ctxt, nd.left, l);
     if (completion.type !== 'normal')
       return completion;
     l = completion.result.value;
   }
 
   if (rconv[op]) {
-    completion = this[rconv[op]](ctxt, nd, r);
+    completion = this[rconv[op]](ctxt, nd.right, r);
     if (completion.type !== 'normal')
       return completion;
     r = completion.result.value;
