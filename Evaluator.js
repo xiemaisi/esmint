@@ -681,13 +681,16 @@ Evaluator.prototype.NewExpression = function(ctxt, nd) {
       callee = completion.result.value;
     }
 
-    args = [];
+    // use a raw object instead of an array here to insulate ourselves against
+    // monkey patching (cf. test-262 15.4.4.16-7-c-i-16)
+    args = util.Object_create(null);
     for (var i = 0, n = nd.arguments.length; i < n; ++i) {
       completion = this.ev(ctxt, nd.arguments[i]);
       if (completion.type !== 'normal')
         return completion;
       args[i] = completion.result.value;
     }
+    args.length = n;
 
     return this.invoke(ctxt, nd, callee, base, args);
 };
