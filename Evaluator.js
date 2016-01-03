@@ -294,7 +294,7 @@ Evaluator.prototype.ConditionalExpression = function(ctxt, nd) {
     var completion = this.ev(ctxt, nd.test);
     if (completion.type !== 'normal')
       return completion;
-    var cond = this.processCondition(ctxt, nd, completion.result.value);
+    var cond = this.processCondition(ctxt, nd.test, completion.result.value);
     if (cond)
       return this.ev(ctxt, nd.consequent);
     if (nd.alternate)
