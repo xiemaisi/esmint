@@ -188,9 +188,12 @@ Evaluator.prototype.evref = function(ctxt, nd) {
       completion = this.ev(ctxt, nd.property);
       if (completion.type !== 'normal')
         return completion;
-      prop = util.String(completion.result.value);
+      completion = this.ToString(ctxt, nd.property, completion.result.value);
+      if (completion.type !== 'normal')
+        return completion;
+      prop = completion.result.value;
     } else {
-      prop = util.String(nd.property.name);
+      prop = nd.property.name;
     }
     return this.evalPropRef(ctxt, nd, base, prop);
   } else if (nd.type === 'VariableDeclaration') {
@@ -787,6 +790,19 @@ Evaluator.prototype.evalBinOp = function(ctxt, nd, op, l, r) {
     if (this.typeOf(r) !== 'object')
       return new Completion('throw', new Result(new util.TypeError()), null);
 
+  // special conversion for `+`
+  if (op === '+' && (typeof l === 'string' || typeof r === 'string')) {
+    completion = this.ToString(ctxt, nd.left, l);
+    if (completion.type !== 'normal')
+      return completion;
+    l = completion.result.value;
+
+    completion = this.ToString(ctxt, nd.right, r);
+    if (completion.type !== 'normal')
+      return completion;
+    r = completion.result.value;
+  }
+
   return new Completion('normal', new Result(binop[op](l, r)), null);
 };
 
@@ -880,12 +896,23 @@ Evaluator.prototype.ToUint32 = function(ctxt, nd, x) {
 };
 
 Evaluator.prototype.ToNumber = function(ctxt, nd, x) {
-  if (this.typeOf(x) !== 'object')
-    return new Completion('normal', new Result(+x), null);
-  var completion = this.ToPrimitive(ctxt, nd, x, 'number');
-  if (completion.type !== 'normal')
-    return completion;
-  return new Completion('normal', new Result(+completion.result.value), null);
+  if (this.typeOf(x) === 'object') {
+    var completion = this.ToPrimitive(ctxt, nd, x, 'number');
+    if (completion.type !== 'normal')
+      return completion;
+    x = completion.result.value;
+  }
+  return new Completion('normal', new Result(+x), null);
+};
+
+Evaluator.prototype.ToString = function(ctxt, nd, x) {
+  if (this.typeOf(x) === 'object') {
+    var completion = this.ToPrimitive(ctxt, nd, x, 'string');
+    if (completion.type !== 'normal')
+      return completion;
+    x = completion.result.value;
+  }
+  return new Completion('normal', new Result(util.String(x)), null);
 };
 
 Evaluator.prototype.ToBoolean = function(ctxt, nd, x) {
