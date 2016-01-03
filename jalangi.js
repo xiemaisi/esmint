@@ -148,7 +148,12 @@ module.exports = {
 
   interceptThrow: hook('_throw'),
 
-  processCondition: hook('conditional'),
+  processCondition: function(ctxt, nd, cond) {
+    var h = this.conditional(iid(nd), cond);
+    if (h)
+      cond = h.result;
+    return this.superCall('processCondition', ctxt, nd, cond);
+  },
 
   evalBinOp: function(ctxt, nd, op, l, r) {
     var isOpAssign = nd.type === 'AssignmentExpression';
@@ -173,7 +178,12 @@ module.exports = {
     return completion;
   },
 
-  interceptForInObject: hook('forinObject'),
+  processForInObject: function(ctxt, nd, obj) {
+    var h = this.forInObject(iid(nd), obj);
+    if (h)
+      obj = h.result;
+    return this.superCall('processForInObject', ctxt, nd, obj);
+  },
 
   ExpressionStatement: function(ctxt, nd) {
     var completion = this.superCall('ExpressionStatement', ctxt, nd);
@@ -182,7 +192,12 @@ module.exports = {
     return completion;
   },
 
-  interceptWith: hook('_with'),
+  processWithObject: function(ctxt, nd, v) {
+    var h = this._with(iid(nd), v);
+    if (h)
+      v = h.result;
+    return this.superCall('processWithObject', ctxt, nd, v);
+  },
 
   Function: function(ctxt, nd) {
     var completion = this.superCall('Function', ctxt, nd);

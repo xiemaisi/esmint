@@ -438,10 +438,9 @@ Evaluator.prototype.ForInStatement = function(ctxt, nd) {
   if (completion.type !== 'normal')
     return completion;
 
-  dom = this.interceptForInObject(ctxt, nd.right, completion.result.value);
+  dom = this.processForInObject(ctxt, nd.right, completion.result.value);
   if (dom === null || dom === void(0))
     return new Completion('normal', null, null);
-  dom = util.Object(completion.result.value);
 
   for (var p in dom) {
     completion = this.evref(ctxt, nd.left);
@@ -460,8 +459,10 @@ Evaluator.prototype.ForInStatement = function(ctxt, nd) {
   return new Completion('normal', result, null);
 };
 
-Evaluator.prototype.interceptForInObject = function(ctxt, nd, obj) {
-  return obj;
+Evaluator.prototype.processForInObject = function(ctxt, nd, obj) {
+  if (obj === null || obj === void(0))
+    return obj;
+  return this.ToObject(ctxt, nd, obj).result.value;
 };
 
 Evaluator.prototype.BreakStatement = function(ctxt, nd) {
@@ -521,19 +522,20 @@ Evaluator.prototype.WithStatement = function(ctxt, nd) {
   if (completion.type !== 'normal')
     return completion;
 
-  var withObj = this.interceptWith(ctxt, nd.object, completion.result.value);
-  if (withObj === null || withObj === void(0))
-    return new Completion('throw', new Result(new util.TypeError()), null);
+  completion = this.processWithObject(ctxt, nd.object, completion.result.value);
+  if (completion.type !== 'normal')
+    return completion;
+  var withObj = completion.result.value;
 
   var oldEnv = ctxt.lexicalEnvironment;
-  ctxt.lexicalEnvironment = new Environment(oldEnv, util.Object(withObj));
+  ctxt.lexicalEnvironment = new Environment(oldEnv, withObj);
   completion = this.ev(ctxt, nd.body);
   ctxt.lexicalEnvironment = oldEnv;
   return completion;
 };
 
-Evaluator.prototype.interceptWith = function(ctxt, nd, obj) {
-  return obj;
+Evaluator.prototype.processWithObject = function(ctxt, nd, obj) {
+  return this.ToObject(obj).result.value;
 };
 
 Evaluator.prototype.FunctionDeclaration =
@@ -572,7 +574,7 @@ Evaluator.prototype.thunkify = function(ctxt, nd, fn) {
       if (thiz === null || thiz === void(0))
         thiz = util.globalObj;
       else
-        thiz = util.Object(thiz);
+        thiz = self.ToObject(ctxt, nd, thiz).result.value;
     }
 
     var new_env = new Environment(outerEnv),
@@ -965,6 +967,12 @@ Evaluator.prototype.DefaultValue = function(ctxt, nd, o, preferredType) {
   }
 
   return new Completion('throw', new Result(new util.TypeError()), null);
+};
+
+Evaluator.prototype.ToObject = function(ctxt, nd, v) {
+  if (v === null || v == void(0))
+    return new Completion('throw', new Result(new util.TypeError("Cannot convert " + v + " to an object.")), null);
+  return new Completion('normal', new Result(util.Object(v)), null);
 };
 
 Evaluator.prototype.typeOf = function(x) {
