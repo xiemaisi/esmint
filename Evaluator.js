@@ -679,9 +679,6 @@ Evaluator.prototype.NewExpression = function(ctxt, nd) {
       if (completion.type !== 'normal')
         return completion;
       base = completion.result.value.getBase();
-      if (base === null || base === void(0))
-        return new Completion('throw', new Result(new util.ReferenceError("Cannot invoke method on " + base)), null);
-      base = util.Object(base);
 
       completion = completion.result.value.get();
       if (completion.type !== 'normal')
