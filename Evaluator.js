@@ -522,8 +522,8 @@ Evaluator.prototype.WithStatement = function(ctxt, nd) {
   return completion;
 };
 
-Evaluator.prototype.processWithObject = function(ctxt, nd, obj) {
-  return this.ToObject(obj).result.value;
+Evaluator.prototype.processWithObject = function(ctxt, nd, v) {
+  return this.ToObject(ctxt, nd, v);
 };
 
 Evaluator.prototype.FunctionDeclaration =
