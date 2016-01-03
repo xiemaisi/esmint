@@ -148,7 +148,7 @@ module.exports = {
 
   interceptThrow: hook('_throw'),
 
-  interceptCond: hook('conditional'),
+  processCondition: hook('conditional'),
 
   evalBinOp: function(ctxt, nd, op, l, r) {
     var isOpAssign = nd.type === 'AssignmentExpression';

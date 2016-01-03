@@ -306,16 +306,16 @@ Evaluator.prototype.ConditionalExpression = function(ctxt, nd) {
     var completion = this.ev(ctxt, nd.test);
     if (completion.type !== 'normal')
       return completion;
-    completion.result.value = this.interceptCond(ctxt, nd, completion.result.value);
-    if (!!completion.result.value)
+    var cond = this.processCondition(ctxt, nd, completion.result.value);
+    if (cond)
       return this.ev(ctxt, nd.consequent);
     if (nd.alternate)
       return this.ev(ctxt, nd.alternate);
     return new Completion('normal', null, null);
 };
 
-Evaluator.prototype.interceptCond = function(ctxt, nd, cond) {
-  return cond;
+Evaluator.prototype.processCondition = function(ctxt, nd, cond) {
+  return this.ToBoolean(ctxt, nd, cond).result.value;
 };
 
 Evaluator.prototype.SwitchStatement = function(ctxt, nd) {
@@ -333,7 +333,7 @@ Evaluator.prototype.SwitchStatement = function(ctxt, nd) {
         return completion;
 
       var cond = this.evalBinOp(ctxt, cse, '===', discr, completion.result.value).result.value;
-      if (this.interceptCond(ctxt, cse, cond))
+      if (this.processCondition(ctxt, cse, cond))
         break;
     }
   }
@@ -360,7 +360,7 @@ Evaluator.prototype.WhileStatement = function(ctxt, nd) {
     completion = this.ev(ctxt, nd.test);
     if (completion.type !== 'normal')
       return completion;
-    var cond = this.interceptCond(ctxt, nd.test, completion.result.value);
+    var cond = this.processCondition(ctxt, nd.test, completion.result.value);
     if (!cond)
       return new Completion('normal', result, null);
     completion = this.ev(ctxt, nd.body);
@@ -388,8 +388,8 @@ Evaluator.prototype.DoWhileStatement = function(ctxt, nd) {
     completion = this.ev(ctxt, nd.test);
     if (completion.type !== 'normal')
       return completion;
-    cond = this.interceptCond(ctxt, nd.test, completion.result.value);
-  } while (!!cond);
+    cond = this.processCondition(ctxt, nd.test, completion.result.value);
+  } while (cond);
 
   return new Completion('normal', result, null);
 };
@@ -409,7 +409,7 @@ Evaluator.prototype.ForStatement = function(ctxt, nd) {
       completion = this.ev(ctxt, nd.test);
       if (completion.type !== 'normal')
         return completion;
-      var cond = this.interceptCond(ctxt, nd.test, completion.result.value);
+      var cond = this.processCondition(ctxt, nd.test, completion.result.value);
       if (!cond)
         return new Completion('normal', result, null);
     }
@@ -982,7 +982,7 @@ Evaluator.prototype.LogicalExpression = function(ctxt, nd) {
     completion = this.ev(ctxt, nd.left);
     if (completion.type !== 'normal')
       return completion;
-    var cond = this.interceptCond(ctxt, nd.left, completion.result.value);
+    var cond = this.processCondition(ctxt, nd.left, completion.result.value);
     if (!cond)
       return completion;
     return this.ev(ctxt, nd.right);
@@ -990,8 +990,8 @@ Evaluator.prototype.LogicalExpression = function(ctxt, nd) {
     completion = this.ev(ctxt, nd.left);
     if (completion.type !== 'normal')
       return completion;
-    var cond = this.interceptCond(ctxt, nd.left, completion.result.value);
-    if (!!cond)
+    var cond = this.processCondition(ctxt, nd.left, completion.result.value);
+    if (cond)
       return completion;
     return this.ev(ctxt, nd.right);
   }
