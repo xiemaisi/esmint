@@ -552,7 +552,9 @@ Evaluator.prototype.Function = function(ctxt, nd) {
 
 Evaluator.prototype.thunkify = function(ctxt, nd, fn) {
   var self = this,
-      strict = ctxt.strict || useStrict(nd.body.body);
+      strict = ctxt.strict || useStrict(nd.body.body),
+      outerEnv = ctxt.lexicalEnvironment,
+      isEvalCode = ctxt.isEvalCode;
 
   return function(thiz, args) {
     if (!strict) {
@@ -562,8 +564,8 @@ Evaluator.prototype.thunkify = function(ctxt, nd, fn) {
         thiz = util.Object(thiz);
     }
 
-    var new_env = new Environment(ctxt.lexicalEnvironment),
-        new_ctxt = new ExecutionContext(new_env, thiz, strict, ctxt.isEvalCode);
+    var new_env = new Environment(outerEnv),
+        new_ctxt = new ExecutionContext(new_env, thiz, strict, isEvalCode);
 
     // set up binding for named function expression
     if (nd.type === 'FunctionExpression' && nd.id)
@@ -575,7 +577,7 @@ Evaluator.prototype.thunkify = function(ctxt, nd, fn) {
     });
 
     // set up bindings for variables declared in body
-    self.instantiateDeclBindings(new_ctxt, nd.body, ctxt.isEvalCode);
+    self.instantiateDeclBindings(new_ctxt, nd.body, isEvalCode);
 
     // set up binding for `arguments` variable
     if (!new_env.hasBinding('arguments'))
