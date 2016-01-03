@@ -113,14 +113,6 @@ InterceptingVarRef.prototype.isUnresolvable = function() {
   return this.varref.isUnresolvable();
 };
 
-
-function hook(h) {
-  return function(ctxt, nd, v) {
-    var r = this[h](iid(nd), v);
-    return r ? r.result : v;
-  }
-}
-
 module.exports = {
   processDecl: function(ctxt, decl, name, init, configurable) {
     var isArgument = false, argumentIndex = -1, isCatchParam = false;
@@ -144,9 +136,23 @@ module.exports = {
     this.superCall('processDecl', ctxt, decl, name, init, configurable);
   },
 
-  interceptReturn: hook('_return'),
+  ReturnStatement: function(ctxt, nd) {
+    var completion = this.superCall('ReturnStatement', ctxt, nd);
+    if (completion.type === 'normal') {
+      var h = this._return(iid(nd), completion.result.value);
+      if (h)
+        completion.result.value = h.result;
+    }
+    return completion;
+  },
 
-  interceptThrow: hook('_throw'),
+  ThrowStatement: function(ctxt, nd) {
+    var completion = this.superCall('ThrowStatement', ctxt, nd);
+    var h = this._throw(iid(nd), completion.result.value);
+    if (h)
+      completion.result.value = h.result;
+    return completion;
+  },
 
   processCondition: function(ctxt, nd, cond) {
     var h = this.conditional(iid(nd), cond);

@@ -271,19 +271,13 @@ Evaluator.prototype.ReturnStatement = function(ctxt, nd) {
   var completion;
   if (nd.argument) {
     completion = this.ev(ctxt, nd.argument);
-    if (completion.type === 'normal') {
-      completion.result.value = this.interceptReturn(ctxt, nd, completion.result.value);
+    if (completion.type === 'normal')
       completion.type = 'return';
-    }
   } else {
-    completion = new Completion('return', new Result(this.interceptReturn(ctxt, nd)), null);
+    completion = new Completion('return', new Result(), null);
   }
   return completion;
 };
-
-Evaluator.prototype.interceptReturn = function(ctxt, nd, result) {
-  return result;
-}
 
 Evaluator.prototype.EmptyStatement = function(ctxt, nd) {
   return new Completion('normal', null, null);
@@ -291,14 +285,8 @@ Evaluator.prototype.EmptyStatement = function(ctxt, nd) {
 
 Evaluator.prototype.ThrowStatement = function(ctxt, nd) {
   var completion = this.ev(ctxt, nd.argument);
-  if (completion.type === 'normal')
-    completion.result.value = this.interceptThrow(ctxt, nd, completion.result.value);
   completion.type = 'throw';
   return completion;
-};
-
-Evaluator.prototype.interceptThrow = function(ctxt, nd, exn) {
-  return exn;
 };
 
 Evaluator.prototype.IfStatement =
