@@ -784,9 +784,13 @@ Evaluator.prototype.evalBinOp = function(ctxt, nd, op, l, r) {
   }
 
   // special checks for `in` and `instanceof`
-  if (op === 'in' || op === 'instanceof')
+  if (op === 'in') {
     if (this.typeOf(r) !== 'object')
-      return new Completion('throw', new Result(new util.TypeError()), null);
+      return new Completion('throw', new Result(new util.TypeError('Expecting an object in \'in\' check')), null);
+  } else if (op === 'instanceof') {
+    if (typeof r !== 'function')
+      return new Completion('throw', new Result(new util.TypeError('Expecting a function in \'instanceof\' check')), null);
+  }
 
   // special conversion for `+`
   if (op === '+' && (typeof l === 'string' || typeof r === 'string')) {
