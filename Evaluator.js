@@ -769,47 +769,72 @@ Evaluator.prototype.evalBinOp = function(ctxt, nd, op, l, r) {
   var completion;
 
   // apply conversions
-  if (lconv[op]) {
-    completion = this.convert(lconv[op], ctxt, nd.left, l);
-    if (completion.type !== 'normal')
-      return completion;
-    l = completion.result.value;
-  }
+  if (op === '==' || op === '!=') {
+    var ltp = this.typeOf(l), rtp = this.typeOf(r);
+    if (!(ltp === rtp || ((ltp === 'null' || ltp === 'undefined') && (rtp === 'null' || rtp === 'undefined')))) {
+      if (ltp === 'number' && rtp === 'string') {
+        r = this.ToNumber(ctxt, nd.right, r).result.value;
+      } else if (ltp === 'string' && rtp === 'number') {
+        l = this.ToNumber(ctxt, nd.left, l).result.value;
+      } else if (ltp === 'boolean') {
+        l = this.ToBoolean(ctxt, nd.left, l).result.value;
+      } else if (rtp === 'boolean') {
+        r = this.ToBoolean(ctxt, nd.right, r).result.value;
+      } else if ((ltp === 'string' || ltp === 'number') && rtp === 'object') {
+        completion = this.ToPrimitive(ctxt, nd.right, r);
+        if (completion.type !== 'normal')
+          return completion;
+        r = completion.result.value;
+      } else if (ltp === 'object' && (rtp === 'string' || rtp === 'number')) {
+        completion = this.ToPrimitive(ctxt, nd.right, l);
+        if (completion.type !== 'normal')
+          return completion;
+        l = completion.result.value;
+      }
+    }
+  } else {
+    if (lconv[op]) {
+      completion = this.convert(lconv[op], ctxt, nd.left, l);
+      if (completion.type !== 'normal')
+        return completion;
+      l = completion.result.value;
+    }
 
-  if (rconv[op]) {
-    completion = this.convert(rconv[op], ctxt, nd.right, r);
-    if (completion.type !== 'normal')
-      return completion;
-    r = completion.result.value;
-  }
+    if (rconv[op]) {
+      completion = this.convert(rconv[op], ctxt, nd.right, r);
+      if (completion.type !== 'normal')
+        return completion;
+      r = completion.result.value;
+    }
 
-  // special checks for `in` and `instanceof`
-  if (op === 'in') {
-    if (this.typeOf(r) !== 'object')
-      return new Completion('throw', new Result(new util.TypeError('Expecting an object in \'in\' check')), null);
-  } else if (op === 'instanceof') {
-    if (typeof r !== 'function')
-      return new Completion('throw', new Result(new util.TypeError('Expecting a function in \'instanceof\' check')), null);
-  }
+    // special checks for `in` and `instanceof`
+    if (op === 'in') {
+      if (this.typeOf(r) !== 'object')
+        return new Completion('throw', new Result(new util.TypeError('Expecting an object in \'in\' check')), null);
+    } else if (op === 'instanceof') {
+      if (typeof r !== 'function')
+        return new Completion('throw', new Result(new util.TypeError('Expecting a function in \'instanceof\' check')), null);
+    }
 
-  // special conversion for `+`
-  if (op === '+' && (typeof l === 'string' || typeof r === 'string')) {
-    completion = this.ToString(ctxt, nd.left, l);
-    if (completion.type !== 'normal')
-      return completion;
-    l = completion.result.value;
+    // special conversion for `+`
+    if (op === '+' && (typeof l === 'string' || typeof r === 'string')) {
+      completion = this.ToString(ctxt, nd.left, l);
+      if (completion.type !== 'normal')
+        return completion;
+      l = completion.result.value;
 
-    completion = this.ToString(ctxt, nd.right, r);
-    if (completion.type !== 'normal')
-      return completion;
-    r = completion.result.value;
-  }
+      completion = this.ToString(ctxt, nd.right, r);
+      if (completion.type !== 'normal')
+        return completion;
+      r = completion.result.value;
+    }
 
-  // special conversions for relational operators
-  if (op === '<' || op === '<=' || op === '>=' || op === '>') {
-    if (!(typeof l === 'string' && typeof r === 'string')) {
-      l = this.ToNumber(ctxt, nd.left, l).result.value;
-      r = this.ToNumber(ctxt, nd.right, r).result.value;
+    // special conversions for relational operators
+    if (op === '<' || op === '<=' || op === '>=' || op === '>') {
+      if (!(typeof l === 'string' && typeof r === 'string')) {
+        l = this.ToNumber(ctxt, nd.left, l).result.value;
+        r = this.ToNumber(ctxt, nd.right, r).result.value;
+      }
     }
   }
 
