@@ -280,9 +280,8 @@ module.exports = {
     return completion;
   },
 
-  invoke: function(ctxt, nd, callee, base, args) {
-    var isConstructor = nd.type === 'NewExpression',
-        isMethod = nd.callee && nd.callee.type === 'MemberExpression';
+  invoke: function(ctxt, nd, callee, base, args, isConstructor) {
+    var isMethod = nd.callee && nd.callee.type === 'MemberExpression';
     var h = this.invokeFunPre(iid(nd), callee, base, args, isConstructor, isMethod);
     var skip = false;
     if (h) {

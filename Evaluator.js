@@ -690,7 +690,7 @@ Evaluator.prototype.NewExpression = function(ctxt, nd) {
     }
     args.length = n;
 
-    return this.invoke(ctxt, nd, callee, base, args);
+    return this.invoke(ctxt, nd, callee, base, args, nd.type === 'NewExpression');
 };
 
 Evaluator.prototype.invokeEval = function(ctxt, nd, base, args) {
@@ -721,13 +721,13 @@ Evaluator.prototype.invokeEval = function(ctxt, nd, base, args) {
   return completion;
 };
 
-Evaluator.prototype.invoke = function(ctxt, nd, callee, base, args) {
+Evaluator.prototype.invoke = function(ctxt, nd, callee, base, args, asConstructor) {
   if (nd.type === 'CallExpression' && callee === eval) {
     return this.invokeEval(ctxt, nd, base, args);
   } else {
     try {
       var v;
-      if (nd.type === 'NewExpression') {
+      if (asConstructor) {
         v = util.construct(callee, args);
       } else {
         v = util.apply(callee, base, args);
