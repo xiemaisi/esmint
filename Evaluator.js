@@ -753,20 +753,31 @@ util.forEach(['&', '|', '^'], function(op) {
   lconv[op] = rconv[op] = 'ToInt32';
 });
 lconv['in'] = 'ToString';
+util.forEach(['<', '<=', '>=', '>'], function(op) {
+  lconv[op] = rconv[op] = 'ToPrimitive:number';
+});
+
+Evaluator.prototype.convert = function(convspec, ctxt, nd, x) {
+  if (util.substring(convspec, 0, 12) === 'ToPrimitive:') {
+    return this.ToPrimitive(ctxt, nd, x, util.substring(convspec, 13));
+  } else {
+    return this[convspec](ctxt, nd, x);
+  }
+};
 
 Evaluator.prototype.evalBinOp = function(ctxt, nd, op, l, r) {
   var completion;
 
   // apply conversions
   if (lconv[op]) {
-    completion = this[lconv[op]](ctxt, nd.left, l);
+    completion = this.convert(lconv[op], ctxt, nd.left, l);
     if (completion.type !== 'normal')
       return completion;
     l = completion.result.value;
   }
 
   if (rconv[op]) {
-    completion = this[rconv[op]](ctxt, nd.right, r);
+    completion = this.convert(rconv[op], ctxt, nd.right, r);
     if (completion.type !== 'normal')
       return completion;
     r = completion.result.value;
@@ -788,6 +799,14 @@ Evaluator.prototype.evalBinOp = function(ctxt, nd, op, l, r) {
     if (completion.type !== 'normal')
       return completion;
     r = completion.result.value;
+  }
+
+  // special conversions for relational operators
+  if (op === '<' || op === '<=' || op === '>=' || op === '>') {
+    if (!(typeof l === 'string' && typeof r === 'string')) {
+      l = this.ToNumber(ctxt, nd.left, l).result.value;
+      r = this.ToNumber(ctxt, nd.right, r).result.value;
+    }
   }
 
   return new Completion('normal', new Result(binop[op](l, r)), null);
