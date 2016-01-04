@@ -9,6 +9,7 @@ function PropRef(base, prop, strict) {
   this.prop = prop;
   this.strict = strict;
 }
+PropRef.prototype = util.Object_create(null);
 
 PropRef.prototype.get = function() {
   try {
@@ -51,6 +52,7 @@ function VarRef(env, name, strict) {
   this.name = name;
   this.strict = strict;
 }
+VarRef.prototype = util.Object_create(null);
 
 VarRef.prototype.get = function() {
   return this.env.get(this.name);

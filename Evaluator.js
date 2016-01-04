@@ -33,6 +33,7 @@ function useStrict(stmts) {
 var globalEnv = new Environment(null, util.globalObj);
 
 function Evaluator() {}
+Evaluator.prototype = util.Object_create(null);
 
 Evaluator.prototype.superCall = function(fn) {
   var args = [];
@@ -183,7 +184,7 @@ Evaluator.prototype.evref = function(ctxt, nd) {
       return completion;
     base = completion.result.value;
     if (base === null || base === void(0))
-      return new Completion('throw', new Result(new util.TypeError()), null);
+      return new Completion('throw', new Result(new util.TypeError("Base of property reference is " + base)), null);
     if (nd.computed) {
       completion = this.ev(ctxt, nd.property);
       if (completion.type !== 'normal')
@@ -999,7 +1000,7 @@ Evaluator.prototype.DefaultValue = function(ctxt, nd, o, preferredType) {
     }
   }
 
-  return new Completion('throw', new Result(new util.TypeError()), null);
+  return new Completion('throw', new Result(new util.TypeError("Cannot determine DefaultValue")), null);
 };
 
 Evaluator.prototype.ToObject = function(ctxt, nd, v) {

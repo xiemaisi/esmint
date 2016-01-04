@@ -10,6 +10,7 @@ function Environment(outer, obj) {
   this.outer = outer;
   this.isDeclarative = !obj;
 }
+Environment.prototype = util.Object.create(null);
 
 Environment.prototype.get = function(name) {
   if (this.hasBinding(name))

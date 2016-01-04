@@ -15,6 +15,7 @@ function InterceptingPropRef(evaluator, nd, propref) {
   this.nd = nd;
   this.propref = propref;
 }
+InterceptingPropRef.prototype = util.Object.create(null);
 
 InterceptingPropRef.prototype.get = function() {
   var h = this.evaluator.getFieldPre(iid(this.nd), this.propref.base, this.propref.prop);
@@ -84,6 +85,7 @@ function InterceptingVarRef(evaluator, nd, varref) {
   this.nd = nd;
   this.varref = varref;
 }
+InterceptingVarRef.prototype = util.Object.create(null);
 
 InterceptingVarRef.prototype.get = function() {
   var completion = this.varref.get();
