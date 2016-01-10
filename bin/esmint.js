@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 /**
  * ESMint command line interface.
  *
@@ -30,14 +32,15 @@
  */
 
 var fs = require('fs'),
-  Evaluator = require('./Evaluator'),
+  path = require('path'),
+  Evaluator = require('../src/core/Evaluator'),
   ev = new Evaluator(),
   completion = {};
 
 for (var i = 2, n = process.argv.length; i < n; ++i) {
   var arg = process.argv[i];
   if (arg === '--mixin') {
-    var newProps = require(process.argv[++i]);
+    var newProps = require(path.resolve(process.argv[++i]));
     if (newProps && typeof newProps === 'object') {
       // create property descriptor object to pass to Object.create
       var newPropDescs = {};

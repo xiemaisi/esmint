@@ -33,7 +33,6 @@ function useStrict(stmts) {
 var globalEnv = new Environment(null, util.globalObj);
 
 function Evaluator() {}
-Evaluator.prototype = util.Object_create(null);
 
 Evaluator.prototype.superCall = function(fn) {
   var args = [];
