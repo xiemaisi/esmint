@@ -23,8 +23,8 @@ Node.js globals such as `console` are available, while module-scoped variables
 such as `require` or `exports` are not:
 
 ```
-$ ./bin/esmint.js 'var me = { name: "Me" }; console.log("My name is " + me.nme);'
-My name is undefined
+$ ./bin/esmint.js 'console.log("Hello, world!")'
+Hello, world!
 ```
 
 ```
@@ -43,9 +43,9 @@ For instance, this can be used to implement dynamic analyses like the ones in
 [src/analyses](src/analyses):
 
 ```
-$ ./bin/esmint.js --mixin src/analyses/UndefinedToString.js 'var me = { name: "Me" }; console.log("My name is " + me.nme);'
-Undefined converted to string at command line argument #3:1,53-1,59.
-My name is undefined
+$ ./bin/esmint.js --mixin src/analyses/CheckNaN.js /path/to/octane/box2d.js
+A ToNumber conversion was applied to NaN 50 times at /path/to/octane/box2d.js:1592,8-1592,27
+A ToNumber conversion was applied to NaN 64 times at /path/to/octane/box2d.js:1242,8-1242,23
 ```
 
 ## Documentation
