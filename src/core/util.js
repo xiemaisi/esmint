@@ -34,6 +34,8 @@ exports.String_prototype_substring = exports.String.prototype.substring;
 exports.TypeError = globalObj.TypeError;
 exports.Date = globalObj.Date;
 
+var Object_hasOwnProperty = exports.Object.hasOwnProperty;
+
 exports.forEach = function(xs, fn) {
   for (var i = 0, n = xs.length; i < n; ++i)
     fn(xs[i], i);
@@ -77,6 +79,10 @@ exports.push = function(xs, x) {
 
 exports.substring = function(str, start, end) {
   return exports.apply(exports.String_prototype_substring, str, [start, end]);
+};
+
+exports.hasOwnProperty = function(obj, prop) {
+  return exports.apply(Object_hasOwnProperty, obj, [prop]);
 };
 
 exports.apply = function(fn, base, args) {
