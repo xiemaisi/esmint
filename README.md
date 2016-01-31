@@ -1,8 +1,7 @@
 # ESMint: **E**CMA**S**cript **M**eta-circular **Int**erpreter
 
 ESMint is a hackable, extensible [meta-circular interpreter](https://en.wikipedia.org/wiki/Meta-circular_evaluator)
-for [ECMAScript 5](https://en.wikipedia.org/wiki/ECMAScript#5th_Edition). It is currently in the early stages of development,
-but already passes about 96% of the [official conformance suite](https://github.com/tc39/test262).
+for [ECMAScript 5](https://en.wikipedia.org/wiki/ECMAScript#5th_Edition). It is currently in the early stages of development, but already passes about 96% of the [official conformance suite](https://github.com/tc39/test262) (which is roughly on par with v8).
 
 ## Installation
 

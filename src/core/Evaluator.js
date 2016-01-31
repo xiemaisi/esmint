@@ -331,7 +331,7 @@ Evaluator.prototype.SwitchStatement = function(ctxt, nd) {
   completion.result = null;
   for (; i < n; ++i) {
     completion = this.evseq(ctxt, nd.cases[i].consequent, completion.result);
-    if (completion.type === 'break' && !completion.target) {
+    if (completion.type === 'break' && !completion.hasTarget()) {
       completion.type = 'normal';
       break;
     } else if (completion.type !== 'normal') {
@@ -353,8 +353,8 @@ Evaluator.prototype.WhileStatement = function(ctxt, nd) {
       return new Completion('normal', result, null);
     completion = this.ev(ctxt, nd.body);
     result = completion.result || result;
-    if (completion.type !== 'continue' || !util.contains(nd.labels, completion.target))
-      if (completion.type === 'break' && util.contains(nd.labels, completion.target))
+    if (completion.type !== 'continue' || !util.contains(nd.labels, completion.getTarget()))
+      if (completion.type === 'break' && util.contains(nd.labels, completion.getTarget()))
         return new Completion('normal', result, null);
       else if (completion.type !== 'normal')
         return completion;
@@ -368,8 +368,8 @@ Evaluator.prototype.DoWhileStatement = function(ctxt, nd) {
   do {
     completion = this.ev(ctxt, nd.body);
     result = completion.result || result;
-    if (completion.type !== 'continue' || !util.contains(nd.labels, completion.target))
-      if (completion.type === 'break' && util.contains(nd.labels, completion.target))
+    if (completion.type !== 'continue' || !util.contains(nd.labels, completion.getTarget()))
+      if (completion.type === 'break' && util.contains(nd.labels, completion.getTarget()))
         break;
       else if (completion.type !== 'normal')
         return completion;
@@ -405,8 +405,8 @@ Evaluator.prototype.ForStatement = function(ctxt, nd) {
     completion = this.ev(ctxt, nd.body);
     result = completion.result || result;
 
-    if (completion.type !== 'continue' || !util.contains(nd.labels, completion.target))
-      if (completion.type === 'break' && util.contains(nd.labels, completion.target))
+    if (completion.type !== 'continue' || !util.contains(nd.labels, completion.getTarget()))
+      if (completion.type === 'break' && util.contains(nd.labels, completion.getTarget()))
         return new Completion('normal', result, null);
       else if (completion.type !== 'normal')
         return completion;
@@ -437,8 +437,8 @@ Evaluator.prototype.ForInStatement = function(ctxt, nd) {
     completion.result.value.set(p)
     completion = this.ev(ctxt, nd.body);
     result = completion.result || result;
-    if (completion.type !== 'continue' || !util.contains(nd.labels, completion.target))
-      if (completion.type === 'break' && util.contains(nd.labels, completion.target))
+    if (completion.type !== 'continue' || !util.contains(nd.labels, completion.getTarget()))
+      if (completion.type === 'break' && util.contains(nd.labels, completion.getTarget()))
         break;
       else if (completion.type !== 'normal')
         return completion;
@@ -478,10 +478,8 @@ Evaluator.prototype.VariableDeclaration = function(ctxt, nd) {
 
 Evaluator.prototype.LabeledStatement = function(ctxt, nd) {
   var completion = this.ev(ctxt, nd.body);
-  if (completion.type === 'break' && completion.target === nd.label.id) {
-    completion.type = 'normal';
-    completion.target = null;
-  }
+  if (completion.type === 'break' && completion.getTarget() === nd.label.id)
+    completion = new Completion('normal', null, null);
   return completion;
 };
 
