@@ -332,7 +332,7 @@ Evaluator.prototype.SwitchStatement = function(ctxt, nd) {
   for (; i < n; ++i) {
     completion = this.evseq(ctxt, nd.cases[i].consequent, completion.result);
     if (completion.type === 'break' && !completion.target) {
-      completion.type === 'normal';
+      completion.type = 'normal';
       break;
     } else if (completion.type !== 'normal') {
       return completion;
@@ -479,7 +479,7 @@ Evaluator.prototype.VariableDeclaration = function(ctxt, nd) {
 Evaluator.prototype.LabeledStatement = function(ctxt, nd) {
   var completion = this.ev(ctxt, nd.body);
   if (completion.type === 'break' && completion.target === nd.label.id) {
-    completion.type === 'normal';
+    completion.type = 'normal';
     completion.target = null;
   }
   return completion;
